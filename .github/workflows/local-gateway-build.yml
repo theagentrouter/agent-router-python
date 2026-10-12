@@ -45,7 +45,7 @@ jobs:
       # request limits) and embeddings. None may skip here.
       - run: pytest tests/test_local_gateway.py tests/test_routes.py tests/test_embeddings.py --junitxml=local-gateway-tests.xml
       - run: python scripts/check_test_report.py local-gateway-tests.xml
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist-local-${{ matrix.target }}
           path: local-dist/*.whl
@@ -70,7 +70,7 @@ jobs:
           if unzip -l local-dist/*.whl | grep -q "/bin/"; then echo "the fallback wheel contains a program"; exit 1; fi
           pip install . local-dist/*.whl
           python -c "import theagentrouter.local_gateway as g; assert not g.installed()"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist-local-any
           path: local-dist/*.whl

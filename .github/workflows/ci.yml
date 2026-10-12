@@ -64,7 +64,7 @@ jobs:
       - run: python -m build                                         # theagentrouter-core
       - run: python -m build packages/theagentrouter --outdir dist   # theagentrouter, no code
       - run: python -m twine check --strict dist/*
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
