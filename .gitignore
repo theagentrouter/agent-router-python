@@ -1,0 +1,15 @@
+__pycache__/
+*.egg-info/
+.venv/
+dist/
+local-dist/
+build/
+.pytest_cache/
+.venv-adk/
+.venv-agents/
+
+# Local provider keys for scripts/smoke_*.py. Never committed.
+.env
+
+# The aigw program for the local-gateway package; put there by `make local-gateway`
+local-gateway/src/theagentrouter_local_gateway/bin/

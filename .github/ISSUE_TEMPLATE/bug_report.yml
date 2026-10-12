@@ -1,0 +1,38 @@
+name: Bug report
+description: Something does not work as described
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The smallest code that shows the problem, and the full error.
+      render: python
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model name
+      placeholder: anthropic/claude-sonnet-4-5
+    validations:
+      required: true
+  - type: dropdown
+    id: route
+    attributes:
+      label: Where the call goes
+      options: [Direct to the provider, Through a gateway (AGENTROUTER_BASE_URL), api_base on the call]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: theagentrouter version
+      placeholder: python -c "import theagentrouter; print(theagentrouter.__version__)"
+    validations:
+      required: true
+  - type: input
+    id: framework
+    attributes:
+      label: Agent framework, if any
+      placeholder: Google ADK 2.10.0

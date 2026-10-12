@@ -1,0 +1,1726 @@
+# theagentrouter
+
+> LiteLLM's API with Agent Router underneath: the SDK alone, for use with a remote gateway. pip install theagentrouter adds the local gateway.
+
+---
+
+<!-- README.md -->
+
+<h1 align="center">theagentrouter</h1>
+
+<p align="center">
+  Call AI models from your agent with LiteLLM's API.<br>
+  Every call goes through <a href="https://github.com/theagentrouter">Agent Router</a>, an open-source AI gateway, which handles fallbacks, retries and request limits.
+</p>
+
+<p align="center">
+  <a href="https://github.com/theagentrouter/agent-router-python/actions/workflows/ci.yml"><img src="https://github.com/theagentrouter/agent-router-python/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://pypi.org/project/theagentrouter/"><img src="https://img.shields.io/pypi/v/theagentrouter.svg" alt="PyPI version"></a>
+  <a href="https://pypi.org/project/theagentrouter-core/"><img src="https://img.shields.io/pypi/pyversions/theagentrouter-core.svg" alt="Python versions"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License: Apache 2.0"></a>
+</p>
+
+<p align="center">
+  <img src="docs/images/how-it-works.svg" alt="Your agent calls theagentrouter with LiteLLM's API. The SDK sends every call to an Agent Router gateway, local or your company's, which handles fallbacks, retries, request limits and provider keys, and calls the providers." width="900">
+</p>
+
+**Alpha: names and behaviour may change before 1.0.**
+
+## Quick start
+
+```sh
+pip install theagentrouter
+export ANTHROPIC_API_KEY=...
+```
+
+```python
+import theagentrouter
+
+resp = theagentrouter.completion(
+    model="anthropic/claude-sonnet-4-5",
+    messages=[{"role": "user", "content": "Summarise yesterday's refunds"}],
+)
+print(resp.choices[0].message.content)
+```
+
+The first call starts a local gateway on your computer, and the gateway calls the provider with your key. On Windows, Intel Macs and older Linux there is no local gateway; use a remote one instead (see [Install](#install)).
+
+## Why use it
+
+- **Already using LiteLLM?** Change one import. Functions, arguments, responses and errors stay the same.
+- **Fallbacks and retries run in a gateway, not in your process.** Define a route once, and every program on the computer uses it.
+- **Google ADK and the OpenAI Agents SDK work without LiteLLM installed.**
+- **Point it at your company's gateway with two environment variables.** Provider keys then stay on that gateway, not on laptops.
+
+## Examples
+
+| You want to | Example |
+|---|---|
+| Make one call | [`00_two_liner.py`](examples/00_two_liner.py) |
+| Move a LiteLLM script over | [`11_from_litellm.py`](examples/11_from_litellm.py) |
+| Fall back to another model when one fails | [`07_fallback.py`](examples/07_fallback.py) |
+| Retry on rate limits and server errors | [`08_retry.py`](examples/08_retry.py) |
+| Stream, use tools, get JSON back | [`03_streaming.py`](examples/03_streaming.py), [`04_tool_use.py`](examples/04_tool_use.py), [`06_structured_output.py`](examples/06_structured_output.py) |
+| Run a Google ADK or OpenAI Agents SDK agent | [`16_adk_agent.py`](examples/16_adk_agent.py), [`17_openai_agents.py`](examples/17_openai_agents.py) |
+| Send calls to your company's gateway | [`15_through_a_gateway.py`](examples/15_through_a_gateway.py) |
+
+All twenty-one, with the keys each one needs: [examples/](examples/README.md).
+
+## Coming from LiteLLM
+
+```python
+from theagentrouter.compat import litellm   # was: import litellm
+```
+
+Change this one import; the rest of your code stays the same. Some LiteLLM functions are not in the SDK, and some arguments are ignored with a warning. The full list: [docs/coming-from-litellm.md](docs/coming-from-litellm.md).
+
+## Fallbacks and retries
+
+A route is a model name you choose, with the models behind it in order. The local gateway calls the first model, retries it if it fails, then moves on to the next one:
+
+```python
+import theagentrouter as ar
+
+ar.route("chat", primary="openai/gpt-4o", fallbacks=["anthropic/claude-sonnet-4-5"], retry=ar.Retry(attempts=2))
+ar.completion(model="chat", messages=[{"role": "user", "content": "hi"}])
+```
+
+Here a call to `chat` goes to `openai/gpt-4o`. If it cannot be reached or answers with 429, 500, 502, 503 or 504, the gateway retries it up to 2 more times, then tries `anthropic/claude-sonnet-4-5` the same way. Other errors, such as 401, are not retried.
+
+- A route can also limit requests: `limit=ar.Limit(60, per="minute")` lets 60 requests a minute through and answers the rest with a `RateLimitError`.
+- Routes are saved in `~/.agentrouter/routes.json`, so every program on this computer can use them.
+- Routes work with the local gateway only. With `AGENTROUTER_BASE_URL` set, set up fallbacks on that gateway instead.
+- `Router` from `theagentrouter.compat.litellm`, with LiteLLM's `fallbacks` and `num_retries`, is turned into routes.
+
+Details: [Routes](docs/usage.md#routes-fallbacks-retries-and-names-of-your-own).
+
+## Agent frameworks
+
+| Framework | How |
+|---|---|
+| Google ADK | `install_as_litellm()`, then ADK's `LiteLlm` model |
+| OpenAI Agents SDK | `install_as_litellm()`, then the Agents SDK's `LitellmModel` |
+
+`install_as_litellm()` is in `theagentrouter.compat`. It makes `import litellm` load this SDK, so neither framework needs LiteLLM installed. Details and examples: [docs/frameworks.md](docs/frameworks.md).
+
+## Install
+
+```sh
+pip install theagentrouter
+```
+
+This installs the SDK and the local gateway. The local gateway is Agent Router's `aigw` program, about 80 MB, and it runs on:
+
+- macOS 13 or newer on Apple chips
+- Linux with glibc 2.36 or newer, on x86-64 or Arm
+
+On any other computer (Windows, Intel Macs, macOS 12 or older, Alpine Linux, Linux with glibc older than 2.36) there is no local gateway, so the same command installs the SDK alone. Calls then need a remote gateway (below).
+
+If your code will use a remote gateway, for example on a server, in a container, in a serverless function or in CI, install the SDK alone and skip the 80 MB:
+
+```sh
+pip install theagentrouter-core
+```
+
+Both packages are imported the same way: `import theagentrouter`.
+
+**Using a remote gateway.** To send calls to an Agent Router gateway that your team or company runs, set its address and key:
+
+```sh
+export AGENTROUTER_BASE_URL=https://gateway.acme.example/v1
+export AGENTROUTER_API_KEY=...
+```
+
+With these set, calls go to that gateway, the local gateway never starts, and the provider keys stay on the remote gateway. This works on every computer.
+
+**The local gateway keeps running** after your program ends, and every program on this computer that uses the SDK shares it. Its files are in `~/.agentrouter/local-gateway/` (or `AGENTROUTER_HOME/local-gateway/`): `config.yaml`, `state.json` and `aigw.log`. To stop it (the next call starts it again):
+
+```sh
+python -c "from theagentrouter import local_gateway; local_gateway.stop()"
+```
+
+Installing from source before the first release, checking the install, upgrading and removing: [docs/install.md](docs/install.md).
+
+## Documentation
+
+| Page | What it covers |
+|---|---|
+| [Install](docs/install.md) | The SDK, the local gateway, checking it works, upgrading, removing |
+| [Usage](docs/usage.md) | Models and keys, parameters, streaming, async, tools, responses, errors, cost, gateways, settings |
+| [Coming from LiteLLM](docs/coming-from-litellm.md) | What works the same, what is missing, what is ignored, a checklist |
+| [Agent frameworks](docs/frameworks.md) | Google ADK and the OpenAI Agents SDK |
+| [How the local gateway works](docs/local-gateway.md) | For contributors: packages, config, routing, tests, what is open |
+
+## For coding agents
+
+- [`llms.txt`](llms.txt) and [`llms-full.txt`](llms-full.txt): the docs and examples in the [llms.txt](https://llmstxt.org) format, for coding agents and AI search.
+- [`skills/`](skills/): agent skills (`SKILL.md`). [`migrate-from-litellm`](skills/migrate-from-litellm/SKILL.md) moves a project off LiteLLM; [`theagentrouter`](skills/theagentrouter/SKILL.md) writes new code with the SDK. Copy a folder into your agent's skills folder (for Claude Code, `.claude/skills/`), then ask it to "migrate this project from LiteLLM to theagentrouter".
+
+## More
+
+- [DEVELOPMENT.md](DEVELOPMENT.md): what is where in this repository, setting up, tests, the framework tests, real-provider checks, releases.
+- [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), [CHANGELOG.md](CHANGELOG.md).
+
+## Design
+
+1. **Only what agent frameworks use.** The SDK has a LiteLLM function or setting only if an agent framework calls it. So there is no image generation, speech, video, files or batches.
+2. **Agent Router handles the calls.** The gateway does fallbacks, retries, request limits, provider keys and logging. The SDK only does what a gateway can't, like building LiteLLM's response objects or running your callbacks.
+3. **Same API as LiteLLM.** Same function names, arguments, responses and errors.
+
+## License
+
+[Apache License 2.0](LICENSE).
+
+---
+
+<!-- docs/usage.md -->
+
+# Usage
+
+## A first call
+
+```python
+import theagentrouter
+
+resp = theagentrouter.completion(
+    model="anthropic/claude-sonnet-4-5",
+    messages=[{"role": "user", "content": "Summarise yesterday's refunds"}],
+)
+print(resp.choices[0].message.content)
+```
+
+`completion` takes the same arguments as `litellm.completion` and returns the same response shape.
+
+## Models and keys
+
+A model name is `provider/model`, such as `openai/gpt-4o-mini`. A name with no provider works where it works in LiteLLM: OpenAI and Anthropic names (`gpt-4o-mini`, `claude-haiku-4-5`). Other names need the provider, as in LiteLLM (`mistral/mistral-large-latest`, `groq/llama-3.1-8b-instant`). A bare `gemini-…` name is refused with `BadRequestError`: LiteLLM sends it to Google Cloud's Vertex AI, which the local gateway does not serve yet, so write `gemini/gemini-2.5-flash` for the Gemini API. Through a gateway you set, names go unchanged: the gateway owns its model names, such as `claude-sonnet-5`.
+
+Every call goes through a gateway: the local gateway (Agent Router on this computer), or one you set. The local gateway reads each provider's key from the environment when it starts:
+
+| Model name starts with | Key |
+|---|---|
+| `openai/` | `OPENAI_API_KEY` |
+| `anthropic/` | `ANTHROPIC_API_KEY` |
+| `gemini/` | `GEMINI_API_KEY` |
+| `groq/` | `GROQ_API_KEY` |
+| `mistral/` | `MISTRAL_API_KEY` |
+| `deepseek/` | `DEEPSEEK_API_KEY` |
+| `together/` | `TOGETHER_API_KEY` |
+| `bedrock/` | `AWS_PROFILE`, or `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; and `AWS_REGION` |
+
+`api_key=` on a call is used in two cases: with `api_base=`, as the key for that endpoint, and with a gateway you set, as that gateway's key. With the local gateway it has no effect and warns once, because the local gateway reads provider keys from the environment when it starts.
+
+To send one call to an endpoint you name, in the provider's own format, use `api_base=` (LiteLLM's argument), for example a local test server.
+
+## Parameters
+
+For OpenAI Chat Completions, these go to the provider as they are:
+
+`temperature`, `top_p`, `n`, `stop`, `max_tokens`, `max_completion_tokens`, `presence_penalty`, `frequency_penalty`, `logit_bias`, `logprobs`, `top_logprobs`, `seed`, `response_format`, `tool_choice`, `parallel_tool_calls`, `reasoning_effort`, `user`, `modalities`, `prediction`, `audio`, `service_tier`.
+
+For Claude, which goes to the gateway in Anthropic's Messages format (so prompt caching and thinking keep working), the SDK translates `temperature`, `top_p`, `top_k`, `stop`, `max_tokens`, `max_completion_tokens`, `tool_choice`, `parallel_tool_calls` and `user`. `parallel_tool_calls=False` allows at most one tool call. OpenAI-only options such as `response_format`, `reasoning_effort` and `seed` raise `UnsupportedParamsError` on this path. Use `extra_body` for native Anthropic options, such as `extra_body={"thinking": {"type": "enabled", "budget_tokens": 1024}}`, or a configured OpenAI-compatible gateway. Prompt caching takes LiteLLM's `cache_control` markers: on a content part, on a whole message, or on a tool; cache reads show in `usage.prompt_tokens_details.cached_tokens`. With thinking on, the reply carries `reasoning_content` and `thinking_blocks` (streamed: `delta.reasoning_content`); send the assistant message back as it is with the tool result, since Anthropic needs its signed thinking blocks. Model capability lookups describe the bundled model catalog; they do not promise that this SDK translates every native option.
+
+These control the call itself:
+
+| Parameter | What it does |
+|---|---|
+| `api_key` | The key for `api_base`, or for a gateway you set. Ignored, with a warning, for the local gateway |
+| `api_base` | Send this call to this address instead, in the provider's own format |
+| `timeout` | Seconds before giving up; the default is 600, as in LiteLLM |
+| `extra_headers` | More HTTP headers on the request |
+| `extra_body` | More fields in the request body, for provider-specific options |
+
+Any other argument is not sent. A few LiteLLM-only arguments, such as `fallbacks` and `num_retries`, warn the first time they are used; see [Coming from LiteLLM](coming-from-litellm.md#ignored-with-a-warning).
+
+## Streaming
+
+```python
+for chunk in theagentrouter.completion(model="openai/gpt-4o-mini", messages=messages, stream=True):
+    print(chunk.choices[0].delta.content or "", end="")
+```
+
+The last chunk carries `usage` with the token counts. Provider error events raise an SDK exception, including errors that arrive after partial output.
+
+## Async
+
+```python
+resp = await theagentrouter.acompletion(model="openai/gpt-4o-mini", messages=messages)
+
+stream = await theagentrouter.acompletion(model="openai/gpt-4o-mini", messages=messages, stream=True)
+async for chunk in stream:
+    print(chunk.choices[0].delta.content or "", end="")
+```
+
+## Tools
+
+Tools use the OpenAI format for every provider, Anthropic included:
+
+```python
+import json
+
+tools = [{
+    "type": "function",
+    "function": {
+        "name": "search_refunds",
+        "description": "Find refunds for a day",
+        "parameters": {"type": "object", "properties": {"day": {"type": "string"}}, "required": ["day"]},
+    },
+}]
+
+messages = [{"role": "user", "content": "How much was refunded yesterday?"}]
+resp = theagentrouter.completion(model="anthropic/claude-sonnet-4-5", messages=messages, tools=tools)
+call = resp.choices[0].message.tool_calls[0]
+args = json.loads(call.function.arguments)
+
+messages.append(resp.choices[0].message.to_dict())
+messages.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps({"total_usd": 42})})
+final = theagentrouter.completion(model="anthropic/claude-sonnet-4-5", messages=messages, tools=tools)
+print(final.choices[0].message.content)
+```
+
+## Responses
+
+Responses read like LiteLLM's, both as attributes and as a dict:
+
+```python
+resp.choices[0].message.content
+resp["choices"][0]["message"]["content"]
+resp.usage.total_tokens
+resp.to_dict()
+```
+
+`resp._hidden_params` says where the call went and what it cost, as LiteLLM's does:
+
+| Key | Example |
+|---|---|
+| `route` | `local gateway`, `gateway` (one you set) or `api_base` (an endpoint named on the call) |
+| `sent_to` | `http://127.0.0.1:52413/anthropic/v1/messages`: the address the SDK sent the request to, here the local gateway |
+| `llm_provider` | `anthropic` |
+| `model_sent` | `anthropic/claude-sonnet-4-5`: the model name in the request. Gateways get the full name and pass the provider its own |
+| `response_cost` | `0.000123`, in US dollars, from the model list. `completion_cost(resp)` gives the same |
+| `served_by`, `route_name` | For a route: the model that answered, and the route's name |
+
+## The Responses API
+
+```python
+resp = theagentrouter.responses(input="Summarise yesterday's refunds", model="openai/gpt-4o-mini", max_output_tokens=200)
+resp.output_text                       # the text of the output messages
+resp.output[0].content[0].text         # the reply as OpenAI sends it, by attribute or key
+resp.usage.input_tokens
+resp._hidden_params["response_cost"]
+```
+
+LiteLLM's `responses` and `aresponses`, through the gateway's `/v1/responses`. Agent Router serves the Responses API for OpenAI models, so other providers are refused with `BadRequestError`; use `completion` for them. `instructions`, `tools`, `tool_choice`, `max_output_tokens`, `temperature`, `reasoning`, `previous_response_id` and the other Responses arguments are passed on. Streaming is not supported yet.
+
+## Errors
+
+Errors keep LiteLLM's names and carry `status_code`, `model` and `llm_provider`:
+
+```python
+from theagentrouter import exceptions
+
+try:
+    theagentrouter.completion(model="openai/gpt-4o-mini", messages=messages)
+except exceptions.ContextWindowExceededError:
+    ...
+except exceptions.RateLimitError:
+    ...
+```
+
+| Error | When |
+|---|---|
+| `UnsupportedParamsError` | An option cannot be translated to the selected request format |
+| `BadRequestError` | The request is wrong, for example a model name the SDK cannot place with a provider (`acme-model`), or a bare `gemini-…` name |
+| `ContextWindowExceededError` | The messages are too long for the model |
+| `ContentPolicyViolationError` | The provider refused the content |
+| `AuthenticationError` | The key is missing or wrong |
+| `PermissionDeniedError` | The key cannot use this model |
+| `NotFoundError` | The model does not exist |
+| `RateLimitError` | Too many requests |
+| `BudgetExceededError` | A gateway's budget is used up. It is a kind of `RateLimitError` |
+| `Timeout` | No answer within `timeout` |
+| `APIConnectionError` | The provider or gateway could not be reached, or the local gateway could not start (the message says why) |
+| `InternalServerError`, `BadGatewayError`, `ServiceUnavailableError` | The provider or gateway failed |
+
+## Cost and model details
+
+```python
+theagentrouter.completion_cost(resp)                      # US dollars for this response
+theagentrouter.get_model_info("openai/gpt-4o-mini")       # context window, prices, features
+theagentrouter.supports_function_calling("anthropic/claude-sonnet-4-5")
+theagentrouter.model_cost["openai/gpt-4o-mini"]           # the raw entry, as in litellm.model_cost
+```
+
+These read the model list that ships with each release ([tetrateio/agent-router-models](https://github.com/tetrateio/agent-router-models)). The SDK never downloads the list while it runs. `get_model_info` raises `NotFoundError` for a model that is not on the list.
+
+## Streams put back together
+
+`theagentrouter.stream_chunk_builder(chunks)` turns the chunks of a streamed call back into one response, as LiteLLM's does: each choice on its own, with text and reasoning joined, tool calls joined by their index, thinking blocks kept, the last finish reason, and the last usage.
+
+## Callbacks
+
+Code that sets LiteLLM's callback lists keeps working through `theagentrouter.compat.litellm`:
+
+```python
+from theagentrouter.compat import litellm
+
+def log(kwargs, response, start_time, end_time):
+    print(kwargs["model"], kwargs["response_cost"], response.usage.total_tokens)
+
+litellm.success_callback = [log]     # also failure_callback, and callbacks for logger objects
+```
+
+A function is called as `fn(kwargs, response, start_time, end_time)`; a logger object gets `log_success_event` and `log_failure_event`, or their `async_` versions under `acompletion`. They run in your program after each `completion`, after a stream ends (with the response put back together), and on errors. A callback that fails warns and does not stop the call. LiteLLM's built-in integrations, named by string (`"langfuse"`), are not here: the gateway's OpenTelemetry traces and metrics record calls.
+
+## Counting tokens
+
+```python
+theagentrouter.token_counter(model="anthropic/claude-sonnet-4-5", messages=messages, tools=tools)
+theagentrouter.token_counter(model="openai/gpt-4o-mini", text="Summarise yesterday's refunds")
+```
+
+LiteLLM's arguments. For OpenAI and Anthropic models, with or without the provider in the name, the gateway counts: Agent Router asks the provider (`/responses/input_tokens`, `/messages/count_tokens`), so the number is what the provider will charge for. Every other provider, a name the SDK cannot place with a provider, and a count the gateway cannot give are estimated on this computer the way LiteLLM does: its rules for messages and tools, with tiktoken. Install it with `pip install theagentrouter[tokens]`; without it the estimate is about four characters a token, and the SDK warns once.
+
+The gateway's count is a request each time. Code that counts before every turn can set `AGENTROUTER_TOKEN_COUNT=estimate` to always estimate, with no request, as LiteLLM does. `litellm.disable_token_counter = True` makes it return 0, as in LiteLLM.
+
+## Embeddings
+
+```python
+resp = theagentrouter.embedding(model="openai/text-embedding-3-small", input=["refunds", "returns"])
+resp.data[0]["embedding"]               # the first vector; resp.data[0].embedding works too
+resp.usage.prompt_tokens
+resp._hidden_params["response_cost"]    # US dollars, from the model list
+```
+
+`aembedding` is the async version. `dimensions`, `encoding_format` and `user` are passed to the provider. Embeddings go where a completion for the same model goes: through the local gateway or one you set. OpenAI, Gemini, Mistral, Together and Bedrock's Titan models have embeddings; Anthropic has no embeddings API.
+
+## Gateways
+
+The SDK never calls a provider itself. A call goes to the first of these that applies:
+
+1. **`api_base` on the call.** That endpoint, for this call only, in the provider's own format (LiteLLM's argument).
+2. **A gateway you set.** With `AGENTROUTER_BASE_URL`, every call goes there in the OpenAI format, with the model name unchanged. Any gateway that accepts the OpenAI Chat Completions format works; Agent Router Enterprise is one.
+3. **The local gateway.** Agent Router on this computer, started by the first call (`AGENTROUTER_AUTOSTART=0` turns that off). Claude goes to its Anthropic Messages endpoint; everything else in the OpenAI format. If the local gateway is not installed, as on Windows, the call fails with a message that says to set `AGENTROUTER_BASE_URL`.
+
+### A gateway you set
+
+A remote gateway: an Agent Router your team deploys, your company's Agent Router Enterprise, or any gateway that accepts the OpenAI format.
+
+```sh
+export AGENTROUTER_BASE_URL=https://gateway.acme.example/v1
+export AGENTROUTER_API_KEY=...      # the gateway's key, not a provider's
+```
+
+Every call goes there and the local gateway never starts. Provider keys stay on the gateway, so this computer needs none. Routes belong to the local gateway: see [Routes and a gateway you set](#routes-and-a-gateway-you-set).
+
+### The local gateway
+
+It comes with `pip install theagentrouter` on macOS 13 or newer on Apple chips and on Linux with glibc 2.36 or newer (not with `theagentrouter-core`, the SDK alone). There is nothing else to run. The first call starts Agent Router's `aigw` on `127.0.0.1`, on a free port chosen at start, and says so once:
+
+```
+theagentrouter: started the local gateway on http://127.0.0.1:52413 (providers from your environment: anthropic, bedrock, openai).
+```
+
+The port changes from start to start, so another gateway on 1975 (Tetrate Desktop, or your own `aigw run`) never blocks it. Every program using the SDK finds the running gateway by itself; to reach it from another tool, read the port from that line or from `port` in `~/.agentrouter/local-gateway/state.json`. Two Agent Router gateways still cannot run on one computer: `aigw` keeps two internal ports fixed (1061 and 18000), so with Tetrate Desktop running the SDK says so and asks you to quit Desktop or set `AGENTROUTER_BASE_URL`.
+
+- The SDK sets the gateway up from the provider keys in your environment. The gateway holds the keys; its config file holds only references such as `${OPENAI_API_KEY}`.
+- Set a new provider's key, and the next call to that provider restarts the gateway with it.
+- `AGENTROUTER_AUTOSTART=0` stops the SDK from starting it.
+- A gateway set with `AGENTROUTER_BASE_URL` always wins, and then the SDK starts nothing.
+- Its files, including its log `aigw.log`, are in `~/.agentrouter/local-gateway/`.
+- The very first start downloads Envoy (about 100 MB, into `~/.local/share/aigw`), so it needs the internet and can take a minute.
+- It keeps running after your program ends. To stop it: `python -c "from theagentrouter import local_gateway; local_gateway.stop()"`. The next call starts it again.
+- After an upgrade of the SDK, the next call restarts a gateway that the old version started.
+
+| Provider | Set in the environment |
+|---|---|
+| AWS Bedrock | `AWS_PROFILE`, or `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; and `AWS_REGION` |
+| OpenAI, Anthropic, Gemini, Groq, Mistral, DeepSeek, Together | The key from [Models and keys](#models-and-keys) |
+
+### Routes: fallbacks, retries and names of your own
+
+A route is a model name of your own with the models behind it. The local gateway serves routes.
+
+```python
+import theagentrouter as ar
+
+ar.route(
+    "chat",
+    primary="openai/gpt-4o",
+    fallbacks=["anthropic/claude-sonnet-4-5"],
+    retry=ar.Retry(attempts=2, on=(429, 500, 502, 503, 504)),
+)
+resp = ar.completion(model="chat", messages=messages)
+resp._hidden_params["served_by"]   # the model that answered
+resp._hidden_params["route_name"]  # "chat"
+```
+
+The local gateway does the retries and the fallbacks, as Agent Router Enterprise does: the SDK sends one request, named after the route.
+
+- **Retry:** the gateway tries each tier `attempts` more times on the listed status codes and on connection failures, with `backoff` seconds before the first retry, doubling up to 10 seconds, and an optional per-try `timeout`.
+- **Fallback:** when a tier still fails with one of those codes, or cannot be reached, the gateway moves to the next tier. A stream falls back only before its reply starts.
+- **Sharing:** `primary=["openai/gpt-4o", "openai/gpt-4o-mini"]` puts two models in one tier, which share the traffic. A fallback can be a list too.
+- `served_by` is read from the model name in the reply, so it is missing when a provider answers with a name that does not start with the model's own.
+- Routes are kept in `~/.agentrouter/routes.json` and shared by every program on the computer, like the local gateway. Defining a route again replaces it; `ar.list_routes()` and `ar.remove_route(name)` list and remove them. A changed route restarts the gateway on the next call that needs it.
+- Every model in a route needs its key in the environment; `route()` checks them when you define it.
+- A route of Anthropic and other providers reaches Anthropic through its OpenAI-compatible endpoint.
+- **Limit:** `limit=ar.Limit(60, per="minute")` lets at most 60 requests a minute through the route; the gateway answers the rest with 429 (`RateLimitError`). `per` is `"second"`, `"minute"`, `"hour"` or `"day"`. The count covers every program on the computer that uses the route. It counts requests, not tokens: Agent Router counts tokens only with a Redis-backed rate-limit service, which the local gateway does not have.
+
+LiteLLM's `Router` works on top of routes: see [Coming from LiteLLM](coming-from-litellm.md).
+
+#### Routes and a gateway you set
+
+Routes program the local gateway only. With `AGENTROUTER_BASE_URL` set:
+
+- `route()` refuses to define a route, and says to set up fallbacks on that gateway instead.
+- A route defined earlier is not used: its name goes to that gateway as a plain model name, and the SDK warns once. That gateway's own routes and fallbacks apply.
+
+## Settings
+
+| Setting | What it does |
+|---|---|
+| `AGENTROUTER_BASE_URL` | Send every call through this gateway, in the OpenAI format |
+| `AGENTROUTER_API_KEY` | The gateway's key |
+| `AGENTROUTER_HOME` | Folder for the SDK's files (default `~/.agentrouter`) |
+| `AGENTROUTER_AUTOSTART` | `0` stops the SDK from starting the local gateway |
+| `AGENTROUTER_TOKEN_COUNT` | `estimate` makes `token_counter` estimate on this computer instead of asking the gateway |
+
+`AGENTROUTER_BASE_URL`, `AGENTROUTER_API_KEY` and `AGENTROUTER_TOKEN_COUNT` can also be kept in `AGENTROUTER_HOME/config.json`, as `base_url`, `api_key` and `token_count`. Environment variables win over the file.
+
+To check that the keys a model needs are set, use LiteLLM's `validate_environment(model)`. For the local gateway it checks what the gateway needs for that provider (for Bedrock: a profile, or a key and secret, and a region); with a gateway set, it checks `AGENTROUTER_API_KEY`.
+
+---
+
+<!-- docs/coming-from-litellm.md -->
+
+# Coming from LiteLLM
+
+theagentrouter keeps LiteLLM's way of calling models: the same `completion` arguments, the same response shape and the same error names. Most code moves with one changed import. This page says exactly what moves, what is missing, and what is ignored.
+
+## Change the import
+
+In your own code:
+
+```python
+from theagentrouter.compat import litellm   # was: import litellm
+
+resp = litellm.completion(model="openai/gpt-4o-mini", messages=messages)
+```
+
+When a library you use imports `litellm` itself, as Google ADK and the OpenAI Agents SDK do, make that import answer with theagentrouter instead. Call this once, before importing the library:
+
+```python
+from theagentrouter.compat import install_as_litellm
+install_as_litellm()
+```
+
+LiteLLM does not need to be installed. See [Agent frameworks](frameworks.md).
+
+A full example: [`examples/11_from_litellm.py`](../examples/11_from_litellm.py). With `Router`: [`examples/12_litellm_router.py`](../examples/12_litellm_router.py).
+
+## What works the same
+
+| LiteLLM | theagentrouter |
+|---|---|
+| `completion`, `acompletion` | Same arguments and response shape |
+| `embedding`, `aembedding` | Same arguments (`input`, `dimensions`, `encoding_format`, `user`) and response shape. Anthropic has no embeddings API, so `anthropic/` models raise `BadRequestError` |
+| `stream=True` | Same chunks, with `usage` on the last one |
+| `tools`, `tool_choice`, `parallel_tool_calls` | OpenAI-shaped inputs, translated for Anthropic too; `parallel_tool_calls=False` disables parallel Anthropic tool calls |
+| `response_format`, `temperature`, `max_tokens` and the other OpenAI parameters | Passed through for OpenAI Chat Completions. Unsupported Anthropic options raise `UnsupportedParamsError` ([the full list](usage.md#parameters)) |
+| `api_base`, `timeout`, `extra_headers`, `extra_body` | Same |
+| `api_key` | Used with `api_base`, or as the key of a gateway you set. With the local gateway it is ignored with a warning: the gateway reads provider keys from the environment ([Models and keys](usage.md#models-and-keys)) |
+| Errors: `RateLimitError`, `ContextWindowExceededError`, `AuthenticationError` and the rest | Same names, under `litellm.` and `theagentrouter.exceptions` |
+| `responses`, `aresponses` | Same arguments, for OpenAI models, through the gateway's `/v1/responses` ([The Responses API](usage.md#the-responses-api)) |
+| `success_callback`, `failure_callback`, `callbacks` | Your functions and logger objects are called after each call ([Callbacks](usage.md#callbacks)) |
+| `stream_chunk_builder`, `validate_environment`, `model_list`, `cost_calculator.completion_cost` | Same |
+| `token_counter` | Same arguments. OpenAI and Anthropic are counted by the gateway, exactly; the rest are estimated as LiteLLM does, with tiktoken from `theagentrouter[tokens]` ([Counting tokens](usage.md#counting-tokens)) |
+| `completion_cost`, `cost_per_token`, `get_model_info`, `model_cost`, `supports_*` | Same, from the model list that ships with each release |
+| `get_llm_provider`, `get_supported_openai_params`, `provider_list` | Same names; parameter discovery excludes options the SDK cannot translate for Anthropic calls |
+| `drop_params`, `set_verbose`, `suppress_debug_info` | Accepted. Unknown parameters are always dropped |
+| Response types under `litellm.types.utils` (`ModelResponse`, `Choices`, `Message`, `Usage` and others) | Same names |
+| `Router` | For `model_list`, `fallbacks` and `num_retries`: the groups become routes in the local gateway, which does the retries and fallbacks. Deployments with one `model_name` share its traffic; keys come from the environment. Other `Router` options warn and are ignored. See [Routes](usage.md#routes-fallbacks-retries-and-names-of-your-own) |
+
+## What is missing
+
+These are not in theagentrouter. Code that uses them fails with `AttributeError`:
+
+| LiteLLM | Instead |
+|---|---|
+| `image_generation`, `transcription`, `speech` | Not available |
+| `text_completion` | Use `completion` with messages |
+| LiteLLM's built-in logging integrations (`success_callback = ["langfuse"]`) | The gateway's OpenTelemetry traces and metrics. Your own callback functions and loggers work: [Callbacks](usage.md#callbacks) |
+| The LiteLLM proxy server | Agent Router, the gateway: [Gateways](usage.md#gateways) |
+
+## Ignored, with a warning
+
+These `completion` arguments work in LiteLLM but do nothing in theagentrouter. Code that relied on one, say `fallbacks`, would keep running without it and nobody would notice, so each of these warns the first time it is used:
+
+| Argument | Instead |
+|---|---|
+| `num_retries`, `max_retries` | Define a route with a `Retry`, or use `Router(num_retries=...)` |
+| `fallbacks`, `context_window_fallbacks`, `content_policy_fallbacks` | Define a route with fallbacks, or use `Router(fallbacks=...)` |
+| `caching`, `cache` | A gateway caches |
+| `metadata`, `tags`, `callbacks`, `logger_fn` (as arguments on one call) | The gateway's request logs record calls; for callbacks, set the module's lists ([Callbacks](usage.md#callbacks)) |
+| `mock_response` | Use a test server with `api_base` |
+| `custom_llm_provider` | Name the provider in the model, for example `openai/gpt-4o-mini` |
+| `api_version` | Azure OpenAI goes through a gateway |
+
+A value that asks for nothing, such as `num_retries=0`, does not warn.
+
+## Other differences
+
+| | LiteLLM | theagentrouter |
+|---|---|---|
+| Model names | OpenAI and Anthropic names work without a provider; a bare `gemini-…` goes to Vertex AI; the rest need `provider/model` | The same for OpenAI and Anthropic, and the rest. A bare `gemini-…` is refused with the reason, because Vertex AI is not in the local gateway yet: write `gemini/…` for the Gemini API. Through a gateway you set, names go unchanged |
+| Where calls go | The library calls more than 100 providers itself | Always through a gateway: Agent Router on this computer, or one you set with `AGENTROUTER_BASE_URL`. The SDK holds no provider addresses or keys; the gateway does |
+| Model list | About 4,460 entries (October 2026), downloaded from GitHub every time `litellm` is imported | 228 entries (October 2026), shipped with each release and never downloaded while running. `get_model_info` raises `NotFoundError` for a model that is not on the list |
+| Install | Many dependencies | `theagentrouter-core`: one dependency, `httpx`. `theagentrouter`: that plus the local gateway (about 80 MB) |
+
+## Check your code
+
+1. Change the import, or call `install_as_litellm()` before the library that imports `litellm`.
+2. Check model names with no provider: OpenAI and Anthropic names work as they are; add the provider to the rest (`mistral/…`, `groq/…`), and write `gemini/…` for Gemini.
+3. Remove `api_key=` from calls that use the local gateway, and set the provider's key in the environment instead.
+4. Run your tests with warnings shown (`python -W default`, or pytest's warnings summary). Every ignored argument is named there once.
+5. Search your code for the names under [What is missing](#what-is-missing).
+
+---
+
+<!-- docs/frameworks.md -->
+
+# Agent frameworks
+
+Many agent frameworks reach models through LiteLLM. For those, theagentrouter answers `import litellm` in its place, and the framework does not change.
+
+| Framework | How | Status |
+|---|---|---|
+| Google ADK | `install_as_litellm()`, then ADK's `LiteLlm` model | Tested: tool calls and answers, with and without streaming, on OpenAI and Anthropic |
+| OpenAI Agents SDK | `install_as_litellm()`, then the Agents SDK's `LitellmModel` | Tested: tool calls and answers, with and without streaming, on OpenAI and Anthropic |
+| CrewAI, DSPy, LangChain (`langchain-litellm`), smolagents, Strands, Aider, OpenHands and others that import `litellm` | `install_as_litellm()`, then the framework's LiteLLM model | Not tested yet. The SDK has every LiteLLM function these call, counted from their source |
+
+"Tested" means a real agent from that framework runs in a test against a local test server, and in a check against real OpenAI and Anthropic models, with LiteLLM not installed.
+
+Last checked on 2026-10-12 with Google ADK 2.11.0 and OpenAI Agents SDK 0.23.1, through the local gateway: four tests against a test server and four checks against real OpenAI and Anthropic for each framework, plus, for ADK, Claude with thinking on calling a tool, streaming and not. Other versions are not covered by these checks.
+
+Calls to Claude reject options this SDK cannot translate, including `response_format` and `reasoning_effort`. See [Parameters](usage.md#parameters) before enabling a framework's structured-output or reasoning settings. To turn on Claude's thinking, pass `extra_body={"thinking": {"type": "enabled", "budget_tokens": 1024}}`: in ADK to `LiteLlm(...)`, in the Agents SDK through `ModelSettings(extra_body=...)`.
+
+## The one rule
+
+Call `install_as_litellm()` **before** importing the framework:
+
+```python
+from theagentrouter.compat import install_as_litellm
+install_as_litellm()
+
+# now import the framework
+```
+
+LiteLLM does not need to be installed, and it is best not installed: every import of `litellm` after the call gets theagentrouter, but code that imported the real LiteLLM before the call keeps it. The tests run with LiteLLM not installed.
+
+## Google ADK
+
+```sh
+pip install theagentrouter google-adk
+```
+
+```python
+from theagentrouter.compat import install_as_litellm
+install_as_litellm()
+
+from google.adk.agents import Agent
+from google.adk.models.lite_llm import LiteLlm
+
+
+def search_refunds(day: str) -> dict:
+    """Find refunds for a day."""
+    return {"day": day, "total_usd": 42}
+
+
+agent = Agent(
+    name="refunds",
+    model=LiteLlm(model="anthropic/claude-sonnet-4-5"),
+    instruction="Answer questions about refunds. Use search_refunds, passing the day as the user wrote it.",
+    tools=[search_refunds],
+)
+```
+
+ADK's own extra, `google-adk[extensions]`, installs LiteLLM. Plain `google-adk` with theagentrouter does not need it.
+
+Runnable example: [`examples/16_adk_agent.py`](../examples/16_adk_agent.py).
+
+## OpenAI Agents SDK
+
+```sh
+pip install theagentrouter openai-agents
+```
+
+```python
+from theagentrouter.compat import install_as_litellm
+install_as_litellm()
+
+from agents import Agent, Runner, function_tool
+from agents.extensions.models.litellm_model import LitellmModel
+
+
+@function_tool
+def search_refunds(day: str) -> dict:
+    """Find refunds for a day."""
+    return {"day": day, "total_usd": 42}
+
+
+agent = Agent(
+    name="refunds",
+    instructions="Answer questions about refunds. Use search_refunds, passing the day as the user wrote it.",
+    model=LitellmModel(model="anthropic/claude-sonnet-4-5"),
+    tools=[search_refunds],
+)
+result = Runner.run_sync(agent, "How much was refunded yesterday?")
+print(result.final_output)
+```
+
+The Agents SDK's own extra, `openai-agents[litellm]`, installs LiteLLM. Plain `openai-agents` with theagentrouter does not need it.
+
+The Agents SDK sends traces to OpenAI by default. Turn that off with `set_tracing_disabled(True)` from `agents` if you do not want it.
+
+Runnable example: [`examples/17_openai_agents.py`](../examples/17_openai_agents.py).
+
+## Through a gateway
+
+Frameworks need no change: every call already goes through the local gateway. Set `AGENTROUTER_BASE_URL` to send all calls to another gateway instead, such as your company's Agent Router.
+
+---
+
+<!-- docs/install.md -->
+
+# Install
+
+## What you need
+
+- Python 3.10 or newer.
+- A key for at least one provider, such as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`.
+
+There are three packages, all with the same version:
+
+| Package | What it is | Install it for |
+|---|---|---|
+| `theagentrouter` | No code of its own: installs the two below | A developer computer: the SDK and the local gateway |
+| `theagentrouter-core` | The SDK (`import theagentrouter`); depends on `httpx` only | A remote gateway: servers, containers, serverless functions, CI |
+| `theagentrouter-local-gateway` | Agent Router's `aigw` program (about 80 MB) | Installed by `theagentrouter`. On computers with no build of `aigw`, pip installs a small version with no program |
+
+## The SDK
+
+```sh
+pip install theagentrouter          # the SDK and the local gateway
+pip install theagentrouter-core     # the SDK alone, for a remote gateway
+```
+
+With `uv`: `uv add theagentrouter`, or `uv add theagentrouter-core`.
+
+**Before the first release,** the package is not on PyPI yet. Install it from a checkout of this repository:
+
+```sh
+git clone https://github.com/theagentrouter/agent-router-python
+pip install ./agent-router-python      # theagentrouter-core, the SDK alone
+```
+
+To get the local gateway too before the release, build its package (below), then `pip install ./agent-router-python/packages/theagentrouter`.
+
+## The local gateway
+
+`pip install theagentrouter` also installs `theagentrouter-local-gateway`, which holds Agent Router's `aigw` program. It runs on:
+
+- macOS 13 or newer on Apple chips
+- Linux with glibc 2.36 or newer, on x86-64 or Arm
+
+There is nothing else to run: the first call starts it. The very first start also downloads Envoy, the proxy `aigw` runs, into `~/.local/share/aigw` (about 100 MB), so it needs the internet and can take a minute; later starts take a few seconds. An SDK upgrade that moves to a newer `aigw` downloads its Envoy the same way and leaves the old one in that folder. See [Usage: the local gateway](usage.md#the-local-gateway).
+
+The package is about 80 MB to download. Windows, Intel Macs, macOS 12 or older, Alpine Linux and Linux with glibc older than 2.36 have no local gateway. On those, `pip install theagentrouter` still succeeds: pip picks a small version of the package with no program in it, and you get the SDK alone. Set `AGENTROUTER_BASE_URL` to an Agent Router gateway; until you do, calls fail with a message that says so.
+
+For serverless functions and CI jobs, use a remote gateway (below) even where the local one would run: each run would otherwise start its own gateway.
+
+**Before the first release,** neither package is on PyPI. Build the local gateway package from this repository with an `aigw` program you have, then install the SDK. `make local-gateway` puts the program in the package and installs it into the repository's own `.venv`; for any other environment, install the folder first:
+
+```sh
+make local-gateway AIGW=/path/to/aigw
+pip install ./local-gateway      # into another environment, before the SDK
+```
+
+`pip install "theagentrouter[local-gateway]"` still works and does the same as `pip install theagentrouter`. With `theagentrouter-core`, `pip install theagentrouter` later adds the local gateway; nothing conflicts.
+
+## A remote gateway
+
+Instead of the local gateway, the SDK can send every call to a gateway that runs elsewhere: an Agent Router your team deploys, your company's Agent Router Enterprise, or any gateway that accepts the OpenAI format. This works on every computer, including those with no local gateway:
+
+```sh
+export AGENTROUTER_BASE_URL=https://gateway.acme.example/v1
+export AGENTROUTER_API_KEY=...      # the gateway's key, not a provider's
+```
+
+Install `theagentrouter-core` for this: it leaves out the local gateway. With `AGENTROUTER_BASE_URL` set, the local gateway never starts, even where it is installed, and no provider keys are needed on this computer: the gateway holds them. See [Usage: a gateway you set](usage.md#a-gateway-you-set).
+
+## Check that it works
+
+```sh
+python -c "import theagentrouter; print(theagentrouter.__version__)"
+```
+
+Then make a first call with a key in your environment:
+
+```sh
+export OPENAI_API_KEY=...
+python -c "
+import theagentrouter
+r = theagentrouter.completion(model='openai/gpt-4o-mini', messages=[{'role': 'user', 'content': 'Say hi.'}])
+print(r.choices[0].message.content)"
+```
+
+The first call prints one line when it starts the local gateway, such as `theagentrouter: started the local gateway on http://127.0.0.1:52413 (providers from your environment: openai).`, then the answer.
+
+## Upgrade
+
+```sh
+pip install -U theagentrouter
+```
+
+Each release carries its own copy of the model list (prices and context windows), so upgrading also updates the list. A running local gateway started by the old version is restarted by the next call after the upgrade; there is nothing to do.
+
+## Remove
+
+Stop the local gateway first; it keeps running after your programs end, and uninstalling does not stop it:
+
+```sh
+python -c "from theagentrouter import local_gateway; local_gateway.stop()"
+pip uninstall theagentrouter theagentrouter-core theagentrouter-local-gateway
+```
+
+The SDK keeps its settings, routes and the local gateway's files in `~/.agentrouter/` (or `AGENTROUTER_HOME`), and `aigw` keeps the Envoy it downloaded in `~/.local/share/aigw`. Delete those folders to remove them too.
+
+## Next
+
+- [Usage](usage.md): calls, streaming, tools, errors, gateways and settings.
+- [Coming from LiteLLM](coming-from-litellm.md): what changes, and what does not.
+- [Agent frameworks](frameworks.md): Google ADK and the OpenAI Agents SDK.
+
+---
+
+<!-- docs/local-gateway.md -->
+
+# Local gateway
+
+**Status:** preparing `0.1.0a1` with checksum-pinned `aigw` v1.2.0. Tested on macOS arm64 (2026-10-12) and Linux arm64 in a container (2026-10-12, before the latest fixes). Linux amd64 has not run with v1.2.0 yet, and nothing has run on GitHub CI yet: the repository is not on GitHub.
+
+The SDK talks only to a gateway (decided 2026-10-12): it never calls a provider itself. `pip install theagentrouter` installs the SDK (`theagentrouter-core`) and `theagentrouter-local-gateway`, which holds the `aigw` program; `pip install theagentrouter-core` is the SDK alone, for a remote gateway. The SDK starts it on the first call, writes its config from the provider keys in the environment, and sends every call through it. The developer runs no command. The SDK sends any format the gateway accepts (Claude in Anthropic Messages, the rest in OpenAI's), and holds no provider address, key or authentication of its own.
+
+## Packages
+
+| Package | Contents | Wheels |
+|---|---|---|
+| `theagentrouter` | No code (`packages/theagentrouter/`, a hatchling wheel with `bypass-selection`). Depends on `theagentrouter-core==<same version>` and `theagentrouter-local-gateway==<same version>` on every platform, with no environment marker. Its empty `local-gateway` extra keeps older instructions working | One wheel, metadata only |
+| `theagentrouter-core` | The SDK, the repository's root package. Depends on `httpx` only; its `local-gateway` extra names the companion | One pure-Python wheel |
+| `theagentrouter-local-gateway` | `theagentrouter_local_gateway/bin/aigw`, `binary_path()` and `has_binary()` | One per platform, built on that platform by `local-gateway/hatch_build.py`: macOS arm64 (`macosx_13_0`, the minimum read from the executable) and Linux amd64/arm64 (`manylinux_2_36`). Plus one `py3-none-any` fallback with no program (`AGENTROUTER_NO_BINARY_WHEEL=1`), which pip installs only where no platform wheel fits, so `pip install theagentrouter` never fails |
+
+The second package lives in this repo under `local-gateway/` and is released with the same version as `theagentrouter`. `make local-gateway AIGW=/path/to/aigw` puts a program in it and installs it for development.
+
+The SDK never imports it at module load. `local_gateway.installed()` is checked only when a call needs the gateway: the package must be importable and `has_binary()` true, so the fallback wheel counts as not installed.
+
+### Size
+
+The macOS arm64 wheel is about 80 MB compressed (the program itself is 281 MB). That is under PyPI's default limit of 100 MB per file. The workflow checks the wheel metadata and builds Linux wheels too. Each wheel must fit PyPI's per-file limit before publication.
+
+## Where a call goes
+
+`routing.resolve`, first match wins:
+
+1. `api_base` on the call: that endpoint, in the provider's own format (LiteLLM's argument).
+2. A gateway set with `AGENTROUTER_BASE_URL` (or `config.json`).
+3. A route name: the local gateway's route for it. The running gateway is used only if it has this computer's current routes (`routes_fingerprint` in `state.json`); otherwise it restarts. With `AGENTROUTER_AUTOSTART=0`, a running gateway that already has the route is still used.
+4. Anything else: the running local gateway, if it has a rule for this name and the name was not a route when it started (`local_gateway.serves`); otherwise the gateway is started or restarted with this model, if installed and `AGENTROUTER_AUTOSTART` is not `0`. Otherwise an error says to set `AGENTROUTER_BASE_URL`. An `api_key=` here cannot reach the provider (the gateway holds the keys), so it warns once.
+
+## Starting and stopping
+
+State lives in `AGENTROUTER_HOME/local-gateway/`: `config.yaml`, `state.json` (pid, port, providers), `aigw.log`, `lock`, and `aigw`'s own config and state folders. `aigw`'s runtime folder, which holds Unix sockets, is a short path under `/tmp`, one per `AGENTROUTER_HOME`.
+
+1. A program takes a file lock on that folder before starting or restarting, so two programs never start two gateways.
+2. If `state.json` names a live process and its port accepts connections, the SDK uses that gateway.
+3. Otherwise it writes `config.yaml`, starts `aigw run` in its own session (so it outlives the program), and waits for `aigw`'s "listening on" line and an open port. It prints the one-line notice once per start.
+4. A call to a provider the running gateway lacks, with that provider's key set, stops the gateway and starts it again with every provider in this program's environment. `aigw` reads its config once at start.
+5. The gateway's own ports are chosen free at each start, so another gateway on 1975 does not block it; if a chosen port is taken before `aigw` binds it, the SDK chooses again (three tries). `aigw`'s internal ports (1061, 18000) cannot move: when one is taken, the SDK names the program holding it (via `lsof`) and, for Tetrate Desktop, asks to quit it or set `AGENTROUTER_BASE_URL`.
+
+`local_gateway.stop()` stops it; the docs give it as a `python -c` line, since there is no command (see Open). `state.json` records the SDK's and the local gateway package's versions (`local_gateway.versions()`); a gateway started by other versions, or before versions were recorded, serves nothing, so the next call restarts it.
+
+## Config
+
+The SDK writes the resources `aigw run` reads: a `GatewayClass` and `Gateway` on `127.0.0.1` at a free port chosen at each start (kept in `state.json`; `--admin-port` is chosen the same way), a buffer-limit `ClientTrafficPolicy`, one `AIGatewayRoute`, and per provider a `Backend`, a `BackendTLSPolicy` for HTTPS, an `AIServiceBackend`, a `BackendSecurityPolicy` and, for API keys, a `Secret`.
+
+**The SDK's `config.yaml` holds key references, not key values.** Each `Secret` holds `${OPENAI_API_KEY}`-style references. `aigw` fills them in from its environment and writes its translated resources and runtime configuration under `aigw-state/`. Those generated files can contain credentials. The end-to-end test checks the SDK input file and the key received by the provider; it does not assert that the upstream process keeps every generated file free of keys.
+
+| Provider | Turned on when these are set | Schema |
+|---|---|---|
+| OpenAI | `OPENAI_API_KEY` | OpenAI |
+| Anthropic | `ANTHROPIC_API_KEY` | Anthropic |
+| AWS Bedrock | `AWS_PROFILE`, or `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY`; and `AWS_REGION` or `AWS_DEFAULT_REGION` | AWSBedrock, with the AWS default credential chain (no credentials file) |
+| Gemini, Groq, Mistral, DeepSeek, Together | That provider's key (`GEMINI_API_KEY` and so on) | OpenAI, with the provider's base path |
+
+Azure OpenAI and Google Vertex AI are not set up yet. A call to them says so.
+
+## Routing
+
+The SDK sends the full model name (`bedrock/anthropic.claude-sonnet-4-5`) to the local gateway, the same as to any other gateway. There is no SDK-only header: the local gateway is stock Agent Router.
+
+`aigw` routes on the model name as it is sent and cannot strip a `bedrock/` prefix. So the config has **one route rule per model**. Each rule matches the full name in the `x-ai-eg-model` header that `aigw` sets from the request, and passes the provider its own name with `modelNameOverride`.
+
+- The rules cover the bundled model list for the providers whose keys are set, plus every other model the moment it is first asked for. A new model restarts the gateway with one more rule, as a new provider does.
+- Gateway API allows at most 16 rules in one route, and `aigw` adds one rule of its own to each `AIGatewayRoute`. So the rules are spread over several `AIGatewayRoute`s of at most 15 (`RULES_PER_ROUTE`). A route with more never starts: `aigw` logs `HTTPRoute ... is invalid: spec.rules: Too many` only with `--debug`, and waits.
+
+**Anthropic goes in its own format.** This `aigw` build has no translation from OpenAI Chat Completions to the Anthropic schema ("unsupported API schema"). It takes Anthropic Messages as they are, under `/anthropic/v1/messages` (`envoyproxy/ai-gateway` `internal/internalapi/internalapi.go:258`). So for Anthropic the SDK sends Messages to that path. Every other provider gets Chat Completions on `/v1/chat/completions`.
+
+### Routes
+
+A route (`theagentrouter.route()`, or LiteLLM's `Router`) becomes **one `AIGatewayRoute`** matching the route's name, with its models as backends at priority 0, 1, … (one per tier, models in a tier at the same priority), and a `BackendTrafficPolicy` that tries each tier `attempts + 1` times before moving to the next. This is Agent Router's provider fallback, the way Agent Router Enterprise renders it. The SDK sends one request named after the route; the gateway does the retries and the fallback.
+
+**Every backend must be a hostname.** Under `aigw run`, a backend written as an IP address gets its endpoints over EDS, and the AI Gateway extension server then labels the whole rule with its **first** backend (`envoyproxy/ai-gateway` `internal/extensionserver/post_translate_modify.go:368-384` on `main` 35307e5e, the same in `v1.1.0`). A fallback is then sent the first backend's model name and key, and the priorities are lost. Reproduced 2026-10-09 with `aigw` v1.1.0 and two fake providers at `127.0.0.1`; the same providers as `localhost` fall back correctly. So the config writes `127.0.0.1` and `::1` as `localhost`. A provider at another IP address cannot fall back correctly until this is fixed in Agent Router.
+
+**Envoy looks up hostnames after it starts listening.** Until it has, a fallback has nowhere to go: in the same test, the first 4 requests after start got 503 because the fallback's host was not resolved yet. So after a start the SDK waits, up to 15 seconds, until Envoy's `/clusters` lists a host for every backend of every route.
+
+A route of Anthropic and other providers reaches Anthropic through its OpenAI-compatible endpoint (`https://api.anthropic.com/v1`, backend `anthropic-openai`), because routes go through the OpenAI format and `aigw` does not translate it to Anthropic Messages.
+
+**Request limits** (`Limit`) go in the same `BackendTrafficPolicy` as the retry, because Envoy Gateway takes one per route: `rateLimit.type: Local`, one rule with `requests` and `unit`. Envoy's local rate limit filter answers 429 before the router, so a limited request is never retried. Two limits on what the local gateway can do:
+
+- It counts **requests, not tokens.** Agent Router's token limits (`QuotaPolicy`, usage-based rate limiting) need Redis and a rate-limit service configured in Envoy Gateway at install; `aigw run` has neither, and Envoy Gateway's local rate limit cannot take a cost from the response (`envoyproxy/gateway` v1.9 `api/v1alpha1/ratelimit_types.go`, "response cost is not supported for Local Rate Limits").
+- It needs **`aigw` v1.2.0.** With v1.1.0 (Envoy Gateway v1.8.1), `aigw run` rejects any `rateLimit`: the schema declares `requests` as int32 with a maximum of 4294967295, so validation fails for every value.
+
+**Embeddings** need no config of their own: `aigw` sets the model header from the body on `/v1/embeddings` too, so the same per-model rules apply.
+
+A prefix-strip option in Agent Router itself would replace the per-model rules with one rule per provider, and would let a stock gateway in Docker take `provider/model` names too. That needs a change in Agent Router first.
+
+## Tests
+
+| What | Where | Last result |
+|---|---|---|
+| Config per provider, no key in the file, one rule per model, rules spread over routes of 15; where calls go (not installed, the fallback wheel, `AGENTROUTER_AUTOSTART=0`, unknown provider, missing credentials, running gateway, set gateway wins, stale state, restart on a new provider, model or removed route) | `tests/test_local_gateway.py`, `tests/test_release_regressions.py`, no `aigw` needed | Pass, macOS arm64, 2026-10-12 |
+| Real `aigw` against the fake provider: start on first call, key filled in by `aigw`, streaming tool call, Anthropic through the gateway, a second program reuses it, restart on a new key and model, the provider gets its own model name, error mapping, ports in use | `tests/test_local_gateway.py`, skipped unless the package is installed | Pass, macOS arm64, 2026-10-12 |
+| Routes: config per model, retry policy, limits, the order models are tried, errors that do not move on, LiteLLM's `Router`, two programs defining routes at once | `tests/test_routes.py`, `tests/test_release_regressions.py` | Pass, macOS arm64, 2026-10-12 |
+| Real `aigw` against two fake providers: fallback with each provider's own model name and key, retries then giving up, no retry on 401, `Router` with a fallback, a request limit answering 429, embeddings | `tests/test_routes.py`, `tests/test_embeddings.py`, skipped unless the package is installed | Pass, macOS arm64, 2026-10-12. In release CI none may skip |
+| Real OpenAI and Anthropic through the real gateway, and a second program | `scripts/smoke_local_gateway.py` | PASS=10, macOS arm64, 2026-10-12 |
+| Real OpenAI and Anthropic routes: primary answers, a failing primary falls back to Anthropic, `Router`, a shared tier | `scripts/smoke_routes.py` | PASS=9, macOS arm64, 2026-10-12 |
+| All 21 examples on real providers through the local gateway | `examples/` | All exit 0, macOS arm64, 2026-10-12 (example 15 needs a remote gateway and now stops without one) |
+
+Run the real-provider scripts one at a time and stop the gateway between them: see `DEVELOPMENT.md`. Bedrock through the local gateway is not tested with real AWS credentials yet.
+
+## Open
+
+1. **Fixed internal ports.** `aigw run` binds fixed ports inside itself (extension server 1061, Envoy Gateway xDS 18000, health 8081, admin 19000 and others), so only one `aigw` runs per computer, and Tetrate Desktop holds them too. The SDK chooses its own listener and admin ports at each start and names the program holding 1061 or 18000. Moving the internal ones needs two upstream changes, which Tetrate Desktop's fork already has: its Agent Router patches 7–8 (1061, the MCP proxy's 9856), and its Envoy Gateway patches 4–7 with Agent Router patch 9 (18000, 19000, 18002, 8081). Neither has been sent upstream (searched 2026-10-12).
+2. **Windows and Intel macOS have no program.** Upstream provides macOS arm64 and Linux amd64/arm64 binaries only; those computers get the fallback wheel. The start lock and the route lock are POSIX only.
+3. **Envoy is downloaded on first start** into `~/.local/share/aigw` (about 100 MB, and older versions stay). To ship it in the wheel, test `aigw run` with a pre-filled `AIGW_DATA_HOME` and no network.
+4. **Restart uses the keys of the program that restarts.** A provider whose key only another program had drops out until that program calls it again.
+5. **Every route change restarts the gateway**, because `aigw` reads its config once at start.
+6. **Backends at an IP address cannot fall back** correctly until Agent Router labels each backend on its own (see "Routes").
+7. **Bedrock with real AWS credentials**, including `AWS_PROFILE`, is untested.
+8. **Azure OpenAI and Google Vertex AI** are not set up.
+9. **No command to stop the gateway**, only `local_gateway.stop()`. Not planned for now (decided 2026-10-12).
+
+---
+
+<!-- skills/theagentrouter/SKILL.md -->
+
+---
+name: theagentrouter
+description: Write Python code that calls AI models with theagentrouter, the Agent Router SDK (LiteLLM's API in a small install). Use when code calls OpenAI, Anthropic or other model providers through theagentrouter, or needs fallbacks, retries, request limits, embeddings or the local gateway.
+---
+
+# Using theagentrouter
+
+`pip install theagentrouter` (or `theagentrouter-core`, the SDK alone, for a remote gateway), `import theagentrouter as ar`. The API is LiteLLM's: if you know `litellm.completion`, you know this.
+
+## Calls
+
+```python
+import theagentrouter as ar
+
+resp = ar.completion(model="anthropic/claude-sonnet-4-5", messages=[{"role": "user", "content": "hi"}])
+resp.choices[0].message.content
+resp._hidden_params["response_cost"]   # US dollars, from the bundled model list
+
+for chunk in ar.completion(model="openai/gpt-4o-mini", messages=messages, stream=True):
+    print(chunk.choices[0].delta.content or "", end="")
+
+resp = await ar.acompletion(model="openai/gpt-4o-mini", messages=messages)
+vecs = ar.embedding(model="openai/text-embedding-3-small", input=["a", "b"])  # vecs.data[0]["embedding"]
+resp = ar.responses(input="hi", model="openai/gpt-4o-mini")  # OpenAI models only; resp.output_text
+n = ar.token_counter(model="openai/gpt-4o-mini", messages=messages)  # the gateway counts OpenAI and Anthropic
+```
+
+- Model names are `provider/model`; a name on the model list (`gpt-4o-mini`) finds its provider, as in LiteLLM.
+- Keys come from the provider's usual environment variable (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, ...). Never put a key in code.
+- `tools`, `tool_choice`, `response_format`, `temperature`, `max_tokens`, `timeout`, `api_key`, `api_base`, `extra_headers` work as in LiteLLM.
+- Errors have LiteLLM's names: `ar.exceptions.RateLimitError`, `AuthenticationError`, `ContextWindowExceededError`, ...
+
+## Where calls go
+
+The SDK never calls a provider itself; every call goes through Agent Router.
+
+1. `api_base=` on a call: that endpoint, for that call only (LiteLLM's argument).
+2. `AGENTROUTER_BASE_URL` set: every call goes to that gateway, with `AGENTROUTER_API_KEY`.
+3. Otherwise the local gateway: Agent Router on this computer, installed with the SDK on macOS 13+ (Apple chips) and Linux, started by the first call. It reads provider keys from the environment, so `api_key=` without `api_base=` has no effect. No command to run.
+
+## Fallbacks, retries, limits
+
+Not arguments on `completion`. Define a route once; the local gateway runs it:
+
+```python
+ar.route(
+    "chat",
+    primary="openai/gpt-4o",
+    fallbacks=["anthropic/claude-sonnet-4-5"],
+    retry=ar.Retry(attempts=2),
+    limit=ar.Limit(60, per="minute"),   # optional; extra requests get RateLimitError
+)
+resp = ar.completion(model="chat", messages=messages)
+resp._hidden_params["served_by"]        # which model answered
+```
+
+Routes are served by the local gateway and shared by every program on the computer. LiteLLM's `Router` (`from theagentrouter.compat.litellm import Router`) works too.
+
+## Agent frameworks
+
+Google ADK, the OpenAI Agents SDK and other code that imports `litellm`: call this before importing the framework.
+
+```python
+from theagentrouter.compat import install_as_litellm
+install_as_litellm()
+```
+
+## Not available
+
+`image_generation`, `transcription`, `speech`, `text_completion`, LiteLLM's built-in logging integrations and its cache. Do not invent them; say they are not supported.
+
+Full docs: `docs/usage.md`, `docs/frameworks.md` and `examples/` in the theagentrouter repository, or `llms-full.txt` at its root.
+
+---
+
+<!-- skills/migrate-from-litellm/SKILL.md -->
+
+---
+name: migrate-from-litellm
+description: Move a Python project from LiteLLM to theagentrouter, the Agent Router SDK. Use when the user asks to replace LiteLLM, drop the litellm dependency, or switch an agent framework (Google ADK, OpenAI Agents SDK) off LiteLLM.
+---
+
+# Migrate from LiteLLM to theagentrouter
+
+theagentrouter keeps LiteLLM's API: `completion`, `acompletion`, `embedding`, `aembedding`, the same responses, the same error names and LiteLLM's `Router`. Most projects change one import. Do the steps in order and stop to report anything under "Not available".
+
+## 1. Find every use of LiteLLM
+
+```sh
+grep -rnE "^\s*(import litellm|from litellm)" --include=*.py .
+grep -rnE "litellm" pyproject.toml requirements*.txt setup.cfg setup.py 2>/dev/null
+```
+
+Also note frameworks that import LiteLLM themselves: Google ADK's `LiteLlm`, the OpenAI Agents SDK's `LitellmModel`, and tools built on LiteLLM.
+
+## 2. Change the dependency
+
+Replace `litellm` with `theagentrouter` in the project's dependencies:
+
+```sh
+pip install theagentrouter
+```
+
+On macOS 13+ (Apple chips) and Linux this also installs the local gateway, Agent Router on the computer, which every call goes through. For code that runs on servers, in containers, serverless functions or CI, use `theagentrouter-core` instead (the SDK alone, same import) with `AGENTROUTER_BASE_URL` pointing at a deployed Agent Router gateway, and on Windows or Intel Macs set `AGENTROUTER_BASE_URL` too; tell the user which applies.
+
+Remove `litellm`, and `google-adk[extensions]` (which pulls LiteLLM in) in favour of plain `google-adk`.
+
+## 3. Change the imports
+
+Code that imports LiteLLM directly:
+
+```python
+# before
+import litellm
+# after
+from theagentrouter.compat import litellm
+```
+
+`from litellm import completion, Router` becomes `from theagentrouter.compat.litellm import completion, Router`.
+
+Code where a framework imports LiteLLM: call `install_as_litellm()` once, **before** the framework is imported, at the program's entry point:
+
+```python
+from theagentrouter.compat import install_as_litellm
+install_as_litellm()
+
+from google.adk.models.lite_llm import LiteLlm  # now gets theagentrouter
+```
+
+## 4. Fix model names
+
+OpenAI and Anthropic names without a provider (`gpt-4o-mini`, `claude-sonnet-4-5`) work, as in LiteLLM. A bare `gemini-…` name meant Vertex AI in LiteLLM, which the local gateway does not serve yet: tell the user, and if they use the Gemini API, change it to `gemini/…`. With `AGENTROUTER_BASE_URL` set, the gateway takes its own names.
+
+## 5. Move retries and fallbacks
+
+`num_retries=`, `fallbacks=` and `max_retries=` on a single `completion` call are ignored with a warning. Two ways to keep them:
+
+- Keep LiteLLM's `Router` as it is: `model_list`, `fallbacks` and `num_retries` work, served by the local gateway.
+- Or define a route once and call it by name:
+
+```python
+import theagentrouter as ar
+
+ar.route("chat", primary="openai/gpt-4o", fallbacks=["anthropic/claude-sonnet-4-5"], retry=ar.Retry(attempts=2))
+ar.completion(model="chat", messages=messages)
+```
+
+A route can also cap requests: `limit=ar.Limit(60, per="minute")`.
+
+## 6. Check what is not there
+
+Search for these and report each use to the user instead of guessing a replacement:
+
+| LiteLLM | In theagentrouter |
+|---|---|
+| `image_generation`, `transcription`, `speech` | Not available |
+| `text_completion` | Use `completion` with messages |
+| `success_callback`, `failure_callback`, `callbacks` | Your functions and loggers work; strings naming LiteLLM integrations (`"langfuse"`) warn and are skipped: the gateway's traces record calls |
+| `responses`, `aresponses` | Work for OpenAI models; other providers raise `BadRequestError` |
+| `token_counter` | Works; add `theagentrouter[tokens]` for LiteLLM's estimate on providers other than OpenAI and Anthropic |
+| `caching`, `cache`, `metadata`, `tags`, `mock_response`, `custom_llm_provider`, `api_version` | Ignored with a warning |
+| `embedding` with an `anthropic/` model | Anthropic has no embeddings API; LiteLLM fails too |
+| The LiteLLM proxy server | Not part of the SDK; point `AGENTROUTER_BASE_URL` at a gateway instead |
+
+## 7. Verify
+
+```sh
+python -W default -m pytest     # every ignored argument warns once; read the warnings
+```
+
+Keys stay in the same environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, ...). Report to the user: files changed, model names changed, warnings seen, and anything from step 6.
+
+Full reference: `docs/coming-from-litellm.md` in the theagentrouter repository.
+
+---
+
+<!-- examples/00_two_liner.py -->
+
+```python
+"""The smallest program: one call, one answer. Needs OPENAI_API_KEY.
+
+OPENAI_API_KEY=... python examples/00_two_liner.py
+"""
+
+import theagentrouter
+
+print(
+    theagentrouter.completion(model="openai/gpt-4o-mini", messages=[{"role": "user", "content": "hi"}])
+    .choices[0]
+    .message.content
+)
+```
+
+---
+
+<!-- examples/01_hello_world.py -->
+
+```python
+"""A text reply and what it cost. Needs ANTHROPIC_API_KEY (or change the model and key)."""
+
+import theagentrouter
+
+resp = theagentrouter.completion(
+    model="anthropic/claude-sonnet-4-5",
+    messages=[{"role": "user", "content": "Say hello in five words."}],
+)
+print(resp.choices[0].message.content)
+print("cost (USD):", theagentrouter.completion_cost(resp))  # from the model list that ships with the SDK
+```
+
+---
+
+<!-- examples/02_multi_provider.py -->
+
+```python
+"""The same call to several providers: only the model name changes.
+
+Every call goes through the local gateway, which reads each provider's key from the environment.
+The Bedrock call runs only when AWS_PROFILE or AWS_ACCESS_KEY_ID is set, with AWS_REGION; other
+ways of signing in to AWS (such as SSO without AWS_PROFILE) are not detected here.
+
+    OPENAI_API_KEY=... ANTHROPIC_API_KEY=... python examples/02_multi_provider.py
+"""
+
+import os
+
+import theagentrouter
+
+MODELS = ["openai/gpt-4o-mini", "anthropic/claude-haiku-4-5"]
+if os.environ.get("AWS_PROFILE") or os.environ.get("AWS_ACCESS_KEY_ID"):
+    MODELS.append("bedrock/global.anthropic.claude-haiku-4-5-20251001-v1:0")
+
+for model in MODELS:
+    resp = theagentrouter.completion(
+        model=model, messages=[{"role": "user", "content": "Name one colour."}], max_tokens=10
+    )
+    print(f"{model:55} {resp.choices[0].message.content}")
+```
+
+---
+
+<!-- examples/03_streaming.py -->
+
+```python
+"""Stream a reply as it is written. Needs OPENAI_API_KEY."""
+
+import theagentrouter
+
+for chunk in theagentrouter.completion(
+    model="openai/gpt-4o-mini",
+    messages=[{"role": "user", "content": "Count from one to ten."}],
+    stream=True,
+):
+    if chunk.choices and chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="", flush=True)
+    if chunk.usage:
+        print(f"\n[{chunk.usage.total_tokens} tokens]")
+```
+
+---
+
+<!-- examples/04_tool_use.py -->
+
+```python
+"""A tool call and the answer that uses its result. Needs ANTHROPIC_API_KEY.
+
+Tools are written in the OpenAI format for every provider; change MODEL to an openai/ model and
+the code stays the same.
+"""
+
+import json
+
+import theagentrouter
+
+MODEL = "anthropic/claude-sonnet-4-5"
+tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_refunds",
+            "description": "Find refunds for a day",
+            "parameters": {"type": "object", "properties": {"day": {"type": "string"}}, "required": ["day"]},
+        },
+    }
+]
+messages = [{"role": "user", "content": "How many refunds were there yesterday?"}]
+
+first = theagentrouter.completion(model=MODEL, messages=messages, tools=tools, tool_choice="required")
+call = first.choices[0].message.tool_calls[0]
+result = {"day": json.loads(call.function.arguments)["day"], "refunds": 3}  # your tool runs here
+
+messages += [
+    first.choices[0].message.to_dict(),
+    {"role": "tool", "tool_call_id": call.id, "content": json.dumps(result)},
+]
+final = theagentrouter.completion(model=MODEL, messages=messages, tools=tools)
+print(final.choices[0].message.content)
+```
+
+---
+
+<!-- examples/05_async.py -->
+
+```python
+"""Several calls at once with acompletion. Needs OPENAI_API_KEY.
+
+OPENAI_API_KEY=... python examples/05_async.py
+"""
+
+import asyncio
+
+import theagentrouter
+
+
+async def ask(question: str) -> str:
+    resp = await theagentrouter.acompletion(
+        model="openai/gpt-4o-mini", messages=[{"role": "user", "content": question}], max_tokens=30
+    )
+    return resp.choices[0].message.content
+
+
+async def main() -> None:
+    questions = ["Name a fruit.", "Name a river.", "Name a planet."]
+    for question, answer in zip(questions, await asyncio.gather(*(ask(q) for q in questions)), strict=True):
+        print(f"{question} -> {answer}")
+
+
+asyncio.run(main())
+```
+
+---
+
+<!-- examples/06_structured_output.py -->
+
+```python
+"""A reply that follows a JSON schema, with response_format. Needs OPENAI_API_KEY.
+
+OPENAI_API_KEY=... python examples/06_structured_output.py
+"""
+
+import json
+
+import theagentrouter
+
+schema = {
+    "type": "object",
+    "properties": {"day": {"type": "string"}, "refunds": {"type": "integer"}},
+    "required": ["day", "refunds"],
+    "additionalProperties": False,
+}
+resp = theagentrouter.completion(
+    model="openai/gpt-4o-mini",
+    messages=[{"role": "user", "content": "Yesterday we had 3 refunds. Report it."}],
+    response_format={"type": "json_schema", "json_schema": {"name": "report", "schema": schema, "strict": True}},
+)
+print(json.loads(resp.choices[0].message.content))
+```
+
+---
+
+<!-- examples/07_fallback.py -->
+
+```python
+"""A route with a fallback: when the primary fails, the next model answers.
+
+The local gateway serves routes. The primary here is a model OpenAI does not have, so OpenAI
+answers 404 and the gateway moves on to Anthropic. `on=` lists the status codes that count as a
+failure; 404 is added here only because the model is made up. `attempts=0` means no retries, so
+the gateway goes straight to the fallback.
+
+    OPENAI_API_KEY=... ANTHROPIC_API_KEY=... python examples/07_fallback.py
+"""
+
+import theagentrouter as ar
+
+ar.route(
+    "chat",
+    primary="openai/gpt-does-not-exist",
+    fallbacks=["anthropic/claude-haiku-4-5"],
+    retry=ar.Retry(attempts=0, on=(404, 429, 500, 502, 503, 504)),
+)
+resp = ar.completion(model="chat", messages=[{"role": "user", "content": "Say hello."}])
+print(resp.choices[0].message.content)
+print("answered by:", resp._hidden_params["served_by"])  # the SDK sent one request; the gateway fell back
+```
+
+---
+
+<!-- examples/08_retry.py -->
+
+```python
+"""A route that retries: the local gateway tries the model again on rate limits and server errors.
+
+Needs OPENAI_API_KEY.
+
+    OPENAI_API_KEY=... python examples/08_retry.py
+"""
+
+import theagentrouter as ar
+
+ar.route(
+    "patient",
+    primary="openai/gpt-4o-mini",
+    retry=ar.Retry(attempts=3, on=(429, 500, 502, 503, 504), timeout=30, backoff=0.5),
+)
+resp = ar.completion(model="patient", messages=[{"role": "user", "content": "Say hello."}])
+print(resp.choices[0].message.content)
+```
+
+---
+
+<!-- examples/09_model_alias.py -->
+
+```python
+"""Names of your own for models, so code says "fast" or "smart" and the choice lives in one place.
+
+Routes are saved on this computer (~/.agentrouter/routes.json) and every program can use them,
+so ar.list_routes() also shows routes that other programs or examples defined.
+Needs OPENAI_API_KEY and ANTHROPIC_API_KEY.
+
+    OPENAI_API_KEY=... ANTHROPIC_API_KEY=... python examples/09_model_alias.py
+"""
+
+import theagentrouter as ar
+
+ar.route("fast", primary="openai/gpt-4o-mini")
+ar.route("smart", primary="anthropic/claude-sonnet-4-5")
+print("fast and smart are saved:", {"fast", "smart"} <= set(ar.list_routes()))
+
+for name in ("fast", "smart"):
+    resp = ar.completion(model=name, messages=[{"role": "user", "content": "Name one colour."}], max_tokens=10)
+    print(f"{name:6} -> {resp._hidden_params['served_by']:30} {resp.choices[0].message.content}")
+```
+
+---
+
+<!-- examples/10_share_traffic.py -->
+
+```python
+"""Two models share the traffic of one route: each call goes to one of them at random.
+
+Needs OPENAI_API_KEY and ANTHROPIC_API_KEY.
+
+    OPENAI_API_KEY=... ANTHROPIC_API_KEY=... python examples/10_share_traffic.py
+"""
+
+from collections import Counter
+
+import theagentrouter as ar
+
+ar.route("shared", primary=["openai/gpt-4o-mini", "anthropic/claude-haiku-4-5"])
+served = Counter(
+    ar.completion(model="shared", messages=[{"role": "user", "content": "hi"}], max_tokens=5)._hidden_params[
+        "served_by"
+    ]
+    for _ in range(6)
+)
+print(dict(served))
+```
+
+---
+
+<!-- examples/11_from_litellm.py -->
+
+```python
+"""A typical LiteLLM script, moved to theagentrouter by changing one import.
+
+Everything below the import is written for LiteLLM: a tool call, the answer, LiteLLM's error
+names and completion_cost. Needs OPENAI_API_KEY (or change MODEL and the key).
+
+    OPENAI_API_KEY=... python examples/11_from_litellm.py
+"""
+
+import json
+
+from theagentrouter.compat import litellm  # was: import litellm
+
+MODEL = "openai/gpt-4o-mini"
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_refunds",
+            "description": "Find refunds for a day",
+            "parameters": {"type": "object", "properties": {"day": {"type": "string"}}, "required": ["day"]},
+        },
+    }
+]
+
+
+def search_refunds(day: str) -> dict:
+    return {"day": day, "refunds": 3, "total_usd": 412.5}
+
+
+def main() -> None:
+    messages = [{"role": "user", "content": "How much was refunded yesterday?"}]
+    try:
+        resp = litellm.completion(model=MODEL, messages=messages, tools=TOOLS, tool_choice="auto")
+        message = resp.choices[0].message
+        cost = litellm.completion_cost(resp)
+        if message.tool_calls:
+            call = message.tool_calls[0]
+            result = search_refunds(**json.loads(call.function.arguments))
+            messages.append(message.model_dump())
+            messages.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps(result)})
+            resp = litellm.completion(model=MODEL, messages=messages, tools=TOOLS)
+            cost += litellm.completion_cost(resp)
+        print(resp.choices[0].message.content)
+        print(f"cost: ${cost:.6f}, context window: {litellm.get_model_info(MODEL)['max_input_tokens']} tokens")
+    except litellm.RateLimitError:
+        print("rate limited; try again later")
+    except litellm.ContextWindowExceededError:
+        print("the conversation is too long for this model")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+---
+
+<!-- examples/12_litellm_router.py -->
+
+```python
+"""LiteLLM's Router, unchanged apart from the import: model groups with fallbacks and retries.
+
+The Router's groups become routes in the local gateway, which does the retries and the fallback.
+
+    OPENAI_API_KEY=... ANTHROPIC_API_KEY=... python examples/12_litellm_router.py
+"""
+
+from theagentrouter.compat import litellm  # was: import litellm
+
+router = litellm.Router(
+    model_list=[
+        {"model_name": "router-chat", "litellm_params": {"model": "openai/gpt-does-not-exist"}},
+        {"model_name": "router-backup", "litellm_params": {"model": "anthropic/claude-haiku-4-5"}},
+    ],
+    fallbacks=[{"router-chat": ["router-backup"]}],
+    num_retries=1,
+)
+resp = router.completion(model="router-chat", messages=[{"role": "user", "content": "Say hello."}])
+print(resp.choices[0].message.content)
+print("answered by:", resp._hidden_params["served_by"])
+```
+
+---
+
+<!-- examples/13_handling_errors.py -->
+
+```python
+"""Errors keep LiteLLM's names, so the same except clauses work. Needs OPENAI_API_KEY.
+
+OPENAI_API_KEY=... python examples/13_handling_errors.py
+"""
+
+import theagentrouter
+from theagentrouter import exceptions
+
+for model in ["openai/gpt-does-not-exist", "openai/gpt-4o-mini"]:
+    try:
+        resp = theagentrouter.completion(model=model, messages=[{"role": "user", "content": "hi"}], max_tokens=5)
+        print(f"{model}: {resp.choices[0].message.content}")
+    except exceptions.NotFoundError as e:
+        print(f"{model}: not found ({e.status_code}): {e}")
+    except exceptions.RateLimitError:
+        print(f"{model}: rate limited; try again later")
+    except exceptions.ContextWindowExceededError:
+        print(f"{model}: the conversation is too long for this model")
+    except exceptions.APIError as e:
+        print(f"{model}: {type(e).__name__} ({e.status_code}): {e}")
+```
+
+---
+
+<!-- examples/14_cost.py -->
+
+```python
+"""What a call cost, and what a model can do, from the bundled model list. Needs OPENAI_API_KEY.
+
+OPENAI_API_KEY=... python examples/14_cost.py
+"""
+
+import theagentrouter
+
+MODEL = "openai/gpt-4o-mini"
+info = theagentrouter.get_model_info(MODEL)
+print(f"{MODEL}: {info['max_input_tokens']} input tokens, tools: {theagentrouter.supports_function_calling(MODEL)}")
+
+resp = theagentrouter.completion(
+    model=MODEL, messages=[{"role": "user", "content": "Write one sentence about refunds."}]
+)
+print(
+    f"{resp.usage.prompt_tokens} in + {resp.usage.completion_tokens} out = ${theagentrouter.completion_cost(resp):.6f}"
+)
+```
+
+---
+
+<!-- examples/15_through_a_gateway.py -->
+
+```python
+"""Send every call through a gateway your team or company runs, instead of the local gateway.
+
+Needs AGENTROUTER_BASE_URL (the gateway's address, which takes the OpenAI format) and
+AGENTROUTER_API_KEY (the gateway's key, not a provider's). No provider key is needed on this
+computer: the gateway holds them.
+
+    AGENTROUTER_BASE_URL=https://gateway.acme.example/v1 AGENTROUTER_API_KEY=... python examples/15_through_a_gateway.py
+"""
+
+import os
+import sys
+from urllib.parse import urlsplit
+
+import theagentrouter
+
+if not os.environ.get("AGENTROUTER_BASE_URL"):
+    sys.exit("Set AGENTROUTER_BASE_URL to your gateway's address. Without it, calls go to the local gateway instead.")
+
+resp = theagentrouter.completion(
+    model="anthropic/claude-sonnet-4-5", messages=[{"role": "user", "content": "Say hello in five words."}]
+)
+print(resp.choices[0].message.content)
+print("answered through:", urlsplit(os.environ["AGENTROUTER_BASE_URL"]).hostname)
+```
+
+---
+
+<!-- examples/16_adk_agent.py -->
+
+```python
+"""A Google ADK agent on theagentrouter, with no LiteLLM installed.
+
+pip install theagentrouter google-adk
+ANTHROPIC_API_KEY=... python examples/16_adk_agent.py
+"""
+
+import asyncio
+
+from theagentrouter.compat import install_as_litellm
+
+install_as_litellm()  # before importing ADK
+
+from google.adk.agents import Agent  # noqa: E402
+from google.adk.models.lite_llm import LiteLlm  # noqa: E402
+from google.adk.runners import InMemoryRunner  # noqa: E402
+from google.genai import types  # noqa: E402
+
+
+def search_refunds(day: str) -> dict:
+    """Find refunds for a day."""
+    return {"day": day, "refunds": 3, "total_usd": 412.5}
+
+
+async def main() -> None:
+    agent = Agent(
+        name="refunds",
+        model=LiteLlm(model="anthropic/claude-sonnet-4-5"),
+        instruction="Answer questions about refunds. Use search_refunds, passing the day as the user wrote it.",
+        tools=[search_refunds],
+    )
+    runner = InMemoryRunner(agent=agent, app_name="acme")
+    session = await runner.session_service.create_session(app_name="acme", user_id="maya")
+    async for event in runner.run_async(
+        user_id="maya",
+        session_id=session.id,
+        new_message=types.Content(role="user", parts=[types.Part(text="How many refunds yesterday?")]),
+    ):
+        for part in (event.content.parts if event.content else []) or []:
+            if part.text:
+                print(part.text)
+
+
+asyncio.run(main())
+```
+
+---
+
+<!-- examples/17_openai_agents.py -->
+
+```python
+"""An OpenAI Agents SDK agent on theagentrouter, with no LiteLLM installed.
+
+pip install theagentrouter openai-agents
+ANTHROPIC_API_KEY=... python examples/17_openai_agents.py
+"""
+
+from theagentrouter.compat import install_as_litellm
+
+install_as_litellm()  # before importing the Agents SDK's LiteLLM model
+
+from agents import Agent, Runner, function_tool, set_tracing_disabled  # noqa: E402
+from agents.extensions.models.litellm_model import LitellmModel  # noqa: E402
+
+
+@function_tool
+def search_refunds(day: str) -> dict:
+    """Find refunds for a day."""
+    return {"day": day, "refunds": 3, "total_usd": 412.5}
+
+
+def main() -> None:
+    set_tracing_disabled(True)  # the Agents SDK sends traces to OpenAI by default
+    agent = Agent(
+        name="refunds",
+        instructions="Answer questions about refunds. Use search_refunds, passing the day as the user wrote it.",
+        model=LitellmModel(model="anthropic/claude-sonnet-4-5"),
+        tools=[search_refunds],
+    )
+    result = Runner.run_sync(agent, "How much was refunded yesterday?")
+    print(result.final_output)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+---
+
+<!-- examples/18_local_gateway.py -->
+
+```python
+"""The local gateway: Agent Router on this computer, started by the first call.
+
+Every call goes through it; the SDK never calls a provider itself. The first call starts the
+gateway (the very first start also downloads Envoy, which can take a minute). The gateway reads
+the provider keys from the environment when it starts, and keeps running after this program ends,
+so the next program on the computer uses the same one. Needs OPENAI_API_KEY.
+
+    OPENAI_API_KEY=... python examples/18_local_gateway.py
+
+To stop the gateway:
+
+    python -c "from theagentrouter import local_gateway; local_gateway.stop()"
+"""
+
+import theagentrouter as ar
+
+resp = ar.completion(model="openai/gpt-4o-mini", messages=[{"role": "user", "content": "Say hello in three words."}])
+print(resp.choices[0].message.content)
+print("went through:", resp._hidden_params["route"])  # "local gateway"
+# The SDK sends the full name; the gateway passes OpenAI its own name, gpt-4o-mini.
+print("model name the SDK sent:", resp._hidden_params["model_sent"])
+```
+
+---
+
+<!-- examples/19_embeddings.py -->
+
+```python
+"""Embeddings with LiteLLM's arguments: one vector per text, and what the call cost. Needs OPENAI_API_KEY.
+
+OPENAI_API_KEY=... python examples/19_embeddings.py
+"""
+
+import math
+
+import theagentrouter as ar
+
+texts = ["How do I get a refund?", "Can I return an item I bought?", "What time is it in Jakarta?"]
+resp = ar.embedding(model="openai/text-embedding-3-small", input=texts)
+vectors = [item["embedding"] for item in resp.data]
+
+
+def similarity(a, b):
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
+    return dot / (math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b)))
+
+
+print(f"{len(vectors)} vectors of {len(vectors[0])} numbers, ${resp._hidden_params['response_cost']:.8f}")
+print(f"refund vs return:  {similarity(vectors[0], vectors[1]):.2f}")
+print(f"refund vs the time: {similarity(vectors[0], vectors[2]):.2f}")
+```
+
+---
+
+<!-- examples/20_request_limit.py -->
+
+```python
+"""A route with a request limit: the local gateway lets 3 requests a minute through and answers the rest with 429.
+
+Useful to stop an agent stuck in a loop from running up a bill. The limit counts requests, not
+tokens, for every program on the computer that uses the route. The running gateway keeps the
+count, so if you run this again within a minute, every request is over the limit.
+Needs OPENAI_API_KEY.
+
+    OPENAI_API_KEY=... python examples/20_request_limit.py
+"""
+
+import theagentrouter as ar
+
+ar.route("capped", primary="openai/gpt-4o-mini", retry=ar.Retry(attempts=0), limit=ar.Limit(3, per="minute"))
+
+for n in range(1, 6):
+    try:
+        ar.completion(model="capped", messages=[{"role": "user", "content": "Say ok."}], max_tokens=5)
+        print(f"request {n}: answered")
+    except ar.exceptions.RateLimitError:
+        print(f"request {n}: over the limit (429)")
+```

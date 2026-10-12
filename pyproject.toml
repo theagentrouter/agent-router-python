@@ -1,0 +1,76 @@
+[build-system]
+requires = ["hatchling", "hatch-fancy-pypi-readme"]
+build-backend = "hatchling.build"
+
+[project]
+name = "theagentrouter-core"
+version = "0.1.0a1"
+description = "LiteLLM's API with Agent Router underneath: the SDK alone, for use with a remote gateway. pip install theagentrouter adds the local gateway."
+dynamic = ["readme"]
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Tetrate" }]
+keywords = ["llm", "ai", "agents", "litellm", "openai", "anthropic", "gateway", "sdk"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
+# The SDK alone. `pip install theagentrouter` (packages/theagentrouter) installs this and the local
+# gateway; this package on its own is for a remote gateway (AGENTROUTER_BASE_URL).
+dependencies = ["httpx>=0.27"]
+
+[project.optional-dependencies]
+local-gateway = ["theagentrouter-local-gateway==0.1.0a1"]
+tokens = ["tiktoken>=0.7"]  # token_counter estimates with LiteLLM's tokenizer
+test = ["pytest>=8", "pytest-asyncio>=0.23"]
+dev = ["theagentrouter-core[test]", "ruff>=0.6", "build>=1.2"]
+
+[project.urls]
+Homepage = "https://github.com/theagentrouter/agent-router-python"
+Issues = "https://github.com/theagentrouter/agent-router-python/issues"
+Changelog = "https://github.com/theagentrouter/agent-router-python/blob/main/CHANGELOG.md"
+
+# PyPI does not follow relative links, so the README on PyPI gets absolute ones.
+# The README in the repository keeps relative links, so GitHub and editors show it as it is.
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '(src=")(?!https?://)([^"]+)"'
+replacement = '\1https://raw.githubusercontent.com/theagentrouter/agent-router-python/main/\2"'
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '(href=")(?!https?://|#)([^"]+)"'
+replacement = '\1https://github.com/theagentrouter/agent-router-python/blob/main/\2"'
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '(\]\()(?!https?://|#)([^)]+)\)'
+replacement = '\1https://github.com/theagentrouter/agent-router-python/blob/main/\2)'
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/theagentrouter"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["*.md"]  # code in docs is written for reading
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]

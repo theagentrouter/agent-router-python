@@ -1,0 +1,121 @@
+setting AGENTROUTER_API_KEY
+setting AGENTROUTER_AUTOSTART
+setting AGENTROUTER_BASE_URL
+setting AGENTROUTER_HOME
+setting AGENTROUTER_PROJECT
+setting AGENTROUTER_TOKEN_COUNT
+theagentrouter.EmbeddingResponse [class]
+theagentrouter.Limit [class]
+theagentrouter.ModelResponse [class]
+theagentrouter.ModelResponseStream [class]
+theagentrouter.ResponsesAPIResponse [class]
+theagentrouter.Retry [class]
+theagentrouter.Route [class]
+theagentrouter.acompletion(model, messages, stream, tools, params)
+theagentrouter.aembedding(model, input, params)
+theagentrouter.aresponses(input, model, params)
+theagentrouter.compat.install_as_litellm()
+theagentrouter.compat.litellm.APIConnectionError [class]
+theagentrouter.compat.litellm.APIError [class]
+theagentrouter.compat.litellm.APIResponseValidationError [class]
+theagentrouter.compat.litellm.AuthenticationError [class]
+theagentrouter.compat.litellm.BadGatewayError [class]
+theagentrouter.compat.litellm.BadRequestError [class]
+theagentrouter.compat.litellm.BudgetExceededError [class]
+theagentrouter.compat.litellm.ChatCompletionAssistantMessage [class]
+theagentrouter.compat.litellm.ChatCompletionDeltaToolCall [class]
+theagentrouter.compat.litellm.ChatCompletionMessageToolCall [class]
+theagentrouter.compat.litellm.ChatCompletionSystemMessage [class]
+theagentrouter.compat.litellm.ChatCompletionToolCallFunctionChunk [class]
+theagentrouter.compat.litellm.ChatCompletionToolMessage [class]
+theagentrouter.compat.litellm.ChatCompletionUserMessage [class]
+theagentrouter.compat.litellm.Choices [class]
+theagentrouter.compat.litellm.ContentPolicyViolationError [class]
+theagentrouter.compat.litellm.ContextWindowExceededError [class]
+theagentrouter.compat.litellm.CostPerToken [class]
+theagentrouter.compat.litellm.CustomStreamWrapper [class]
+theagentrouter.compat.litellm.Delta [class]
+theagentrouter.compat.litellm.EmbeddingResponse [class]
+theagentrouter.compat.litellm.InternalServerError [class]
+theagentrouter.compat.litellm.Message [class]
+theagentrouter.compat.litellm.ModelResponse [class]
+theagentrouter.compat.litellm.ModelResponseStream [class]
+theagentrouter.compat.litellm.NotFoundError [class]
+theagentrouter.compat.litellm.OpenAIMessageContent [value]
+theagentrouter.compat.litellm.PermissionDeniedError [class]
+theagentrouter.compat.litellm.RateLimitError [class]
+theagentrouter.compat.litellm.ResponsesAPIResponse [class]
+theagentrouter.compat.litellm.Router [class]
+theagentrouter.compat.litellm.ServiceUnavailableError [class]
+theagentrouter.compat.litellm.StreamingChoices [class]
+theagentrouter.compat.litellm.Timeout [class]
+theagentrouter.compat.litellm.UnprocessableEntityError [class]
+theagentrouter.compat.litellm.UnsupportedParamsError [class]
+theagentrouter.compat.litellm.Usage [class]
+theagentrouter.compat.litellm.acompletion(model, messages, kwargs)
+theagentrouter.compat.litellm.acreate_file(args, kwargs)
+theagentrouter.compat.litellm.add_function_to_prompt [value]
+theagentrouter.compat.litellm.aembedding(model, input, params)
+theagentrouter.compat.litellm.aresponses(input, model, params)
+theagentrouter.compat.litellm.callbacks [value]
+theagentrouter.compat.litellm.completion(model, messages, kwargs)
+theagentrouter.compat.litellm.completion_cost(completion_response, model, prompt_tokens, completion_tokens, custom_llm_provider)
+theagentrouter.compat.litellm.cost_per_token(model, prompt_tokens, completion_tokens, custom_llm_provider)
+theagentrouter.compat.litellm.disable_token_counter [value]
+theagentrouter.compat.litellm.drop_params [value]
+theagentrouter.compat.litellm.embedding(model, input, params)
+theagentrouter.compat.litellm.failure_callback [value]
+theagentrouter.compat.litellm.get_llm_provider(model, custom_llm_provider, api_base, api_key, _)
+theagentrouter.compat.litellm.get_model_info(model, custom_llm_provider)
+theagentrouter.compat.litellm.get_supported_openai_params(model, custom_llm_provider, _)
+theagentrouter.compat.litellm.model_cost [value]
+theagentrouter.compat.litellm.model_list [value]
+theagentrouter.compat.litellm.provider_list [value]
+theagentrouter.compat.litellm.responses(input, model, params)
+theagentrouter.compat.litellm.set_verbose [value]
+theagentrouter.compat.litellm.stream_chunk_builder(chunks, messages)
+theagentrouter.compat.litellm.success_callback [value]
+theagentrouter.compat.litellm.supports_function_calling(model, custom_llm_provider)
+theagentrouter.compat.litellm.supports_prompt_caching(model, custom_llm_provider)
+theagentrouter.compat.litellm.supports_reasoning(model, custom_llm_provider)
+theagentrouter.compat.litellm.supports_response_schema(model, custom_llm_provider)
+theagentrouter.compat.litellm.supports_vision(model, custom_llm_provider)
+theagentrouter.compat.litellm.suppress_debug_info [value]
+theagentrouter.compat.litellm.telemetry [value]
+theagentrouter.compat.litellm.token_counter(args, kwargs)
+theagentrouter.compat.litellm.validate_environment(model, api_key, api_base)
+theagentrouter.completion(model, messages, stream, tools, params)
+theagentrouter.completion_cost(completion_response, model, prompt_tokens, completion_tokens, custom_llm_provider)
+theagentrouter.cost_per_token(model, prompt_tokens, completion_tokens, custom_llm_provider)
+theagentrouter.embedding(model, input, params)
+theagentrouter.exceptions.APIConnectionError [class]
+theagentrouter.exceptions.APIError [class]
+theagentrouter.exceptions.APIResponseValidationError [class]
+theagentrouter.exceptions.AuthenticationError [class]
+theagentrouter.exceptions.BadGatewayError [class]
+theagentrouter.exceptions.BadRequestError [class]
+theagentrouter.exceptions.BudgetExceededError [class]
+theagentrouter.exceptions.ContentPolicyViolationError [class]
+theagentrouter.exceptions.ContextWindowExceededError [class]
+theagentrouter.exceptions.InternalServerError [class]
+theagentrouter.exceptions.NotFoundError [class]
+theagentrouter.exceptions.PermissionDeniedError [class]
+theagentrouter.exceptions.RateLimitError [class]
+theagentrouter.exceptions.ServiceUnavailableError [class]
+theagentrouter.exceptions.Timeout [class]
+theagentrouter.exceptions.UnprocessableEntityError [class]
+theagentrouter.exceptions.UnsupportedParamsError [class]
+theagentrouter.get_model_info(model, custom_llm_provider)
+theagentrouter.list_routes()
+theagentrouter.model_cost [value]
+theagentrouter.remove_route(name)
+theagentrouter.responses(input, model, params)
+theagentrouter.route(name, primary, fallbacks, retry, limit)
+theagentrouter.stream_chunk_builder(chunks, messages)
+theagentrouter.supports_function_calling(model, custom_llm_provider)
+theagentrouter.supports_prompt_caching(model, custom_llm_provider)
+theagentrouter.supports_reasoning(model, custom_llm_provider)
+theagentrouter.supports_response_schema(model, custom_llm_provider)
+theagentrouter.supports_vision(model, custom_llm_provider)
+theagentrouter.token_counter(model, custom_tokenizer, text, messages, count_response_tokens, tools, tool_choice, use_default_image_token_count, default_token_count)
+theagentrouter.validate_environment(model, api_key, api_base)

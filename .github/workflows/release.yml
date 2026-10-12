@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+
+  verify:
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python scripts/check_release.py --tag "$GITHUB_REF_NAME"
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-local-*
+          path: companion-dist/
+          merge-multiple: true
+      - name: Verify SDK and all companion wheels are present
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          files = list(Path("dist").glob("*")) + list(Path("companion-dist").glob("*"))
+          # darwin-arm64, linux-amd64, linux-arm64, and the py3-none-any fallback with no program
+          assert len(list(Path("companion-dist").glob("theagentrouter_local_gateway-*.whl"))) == 4
+          assert len(list(Path("companion-dist").glob("theagentrouter_local_gateway-*-py3-none-any.whl"))) == 1
+          for name in ("theagentrouter_core", "theagentrouter"):
+              assert len(list(Path("dist").glob(f"{name}-[0-9]*.whl"))) == 1, name
+              assert len(list(Path("dist").glob(f"{name}-[0-9]*.tar.gz"))) == 1, name
+          assert len(files) == 8
+          PY
+
+  # One job and one GitHub environment per package. PyPI accepts only one pending
+  # trusted publisher per owner, repository, workflow and environment, so each
+  # package needs its own environment until its project exists on PyPI.
+  # Each package goes up after the ones it depends on: the gateway, the SDK, then theagentrouter.
+  publish-local-gateway:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: pypi-local-gateway
+    permissions:
+      id-token: write   # PyPI trusted publishing; no token stored anywhere
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-local-*
+          path: companion-dist/
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: companion-dist/
+
+  publish-core:
+    needs: publish-local-gateway
+    runs-on: ubuntu-latest
+    environment: pypi-core
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - run: rm dist/theagentrouter-[0-9]*
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+  publish-theagentrouter:
+    needs: publish-core
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - run: rm dist/theagentrouter_core-*
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/

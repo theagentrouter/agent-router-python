@@ -1,0 +1,77 @@
+name: Local gateway packages
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: darwin-arm64
+          - os: ubuntu-24.04
+            target: linux-amd64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build twine pytest pytest-asyncio
+      - run: python scripts/check_release.py
+      - run: python scripts/fetch_aigw.py
+      - run: python -m build --wheel
+      - run: python -m build --wheel local-gateway --outdir local-dist
+      - run: python -m twine check --strict local-dist/*
+      - name: Install built packages
+        run: pip install dist/*.whl local-dist/*.whl
+      - name: PyPI companion wheel size limit
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          for wheel in Path("local-dist").glob("*.whl"):
+              assert wheel.stat().st_size <= 100 * 1024 * 1024, f"{wheel} exceeds PyPI's default file limit"
+          PY
+      - run: python -m pip check
+      # Every test that starts the real aigw: the gateway itself, routes (fallbacks, retries,
+      # request limits) and embeddings. None may skip here.
+      - run: pytest tests/test_local_gateway.py tests/test_routes.py tests/test_embeddings.py --junitxml=local-gateway-tests.xml
+      - run: python scripts/check_test_report.py local-gateway-tests.xml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-local-${{ matrix.target }}
+          path: local-dist/*.whl
+          compression-level: 0
+          if-no-files-found: error
+
+  # Where no platform wheel fits, pip installs this one, so `pip install theagentrouter` never fails.
+  fallback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build twine
+      - run: AGENTROUTER_NO_BINARY_WHEEL=1 python -m build --wheel local-gateway --outdir local-dist
+      - run: python -m twine check --strict local-dist/*
+      - name: The fallback wheel has no program, and the SDK sees no local gateway
+        run: |
+          test "$(ls local-dist)" = "theagentrouter_local_gateway-$(python scripts/check_release.py --print-version)-py3-none-any.whl"
+          if unzip -l local-dist/*.whl | grep -q "/bin/"; then echo "the fallback wheel contains a program"; exit 1; fi
+          pip install . local-dist/*.whl
+          python -c "import theagentrouter.local_gateway as g; assert not g.installed()"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-local-any
+          path: local-dist/*.whl
+          if-no-files-found: error
