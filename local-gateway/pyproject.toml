@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling", "packaging"]
+build-backend = "hatchling.build"
+
+[project]
+name = "theagentrouter-local-gateway"
+version = "0.1.0a2"
+description = "Agent Router's aigw program, for theagentrouter's local gateway. Installed with pip install theagentrouter."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Tetrate" }]
+
+[project.urls]
+Homepage = "https://github.com/theagentrouter/agent-router-python"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/theagentrouter_local_gateway"]
+artifacts = ["src/theagentrouter_local_gateway/bin/*"]
+
+[tool.hatch.build.hooks.custom]
+path = "hatch_build.py"

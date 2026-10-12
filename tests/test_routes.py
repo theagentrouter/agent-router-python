@@ -1,0 +1,478 @@
+"""Routes: fallbacks and retries done by the local gateway, and LiteLLM's Router on top of them.
+
+The end-to-end tests start the real aigw against the fake provider and are skipped unless the
+local-gateway package is installed and aigw's fixed internal ports are free (see test_local_gateway).
+"""
+
+from __future__ import annotations
+
+import contextlib
+import json
+import os
+import signal
+import subprocess
+import time
+import warnings
+
+import pytest
+
+import theagentrouter as ar
+from theagentrouter import exceptions, local_gateway, routes
+from theagentrouter.compat import litellm
+
+from .test_local_gateway import HELLO, _free_port, _port, _write_state, needs_aigw, needs_xds_port
+
+
+@pytest.fixture
+def installed(monkeypatch):
+    monkeypatch.setattr(local_gateway, "installed", lambda: True)
+
+
+# --- defining routes ------------------------------------------------------------------------------
+
+
+def test_route_is_stored_and_listed(env, installed):
+    r = ar.route("chat", primary="openai/gpt-4o", fallbacks=["anthropic/claude-sonnet-4-5"], retry=ar.Retry(attempts=2))
+    assert r.tiers == (("openai/gpt-4o",), ("anthropic/claude-sonnet-4-5",))
+    assert ar.list_routes() == {"chat": r}
+    saved = json.loads((env / "routes.json").read_text())
+    assert saved["chat"]["tiers"] == [["openai/gpt-4o"], ["anthropic/claude-sonnet-4-5"]]
+    assert saved["chat"]["retry"]["attempts"] == 2
+
+
+def test_redefining_replaces_and_says_so(env, installed, capsys):
+    ar.route("chat", primary="openai/gpt-4o")
+    ar.route("chat", primary="openai/gpt-4o")  # the same: nothing to say
+    assert "replaced" not in capsys.readouterr().err
+    ar.route("chat", primary="openai/gpt-4o-mini")
+    assert "replaced route 'chat'" in capsys.readouterr().err
+    assert ar.list_routes()["chat"].primary == "openai/gpt-4o-mini"
+
+
+def test_remove_route(env, installed):
+    ar.route("chat", primary="openai/gpt-4o")
+    assert ar.remove_route("chat") is True
+    assert ar.remove_route("chat") is False
+    assert ar.list_routes() == {}
+
+
+def test_a_list_in_a_tier_shares_traffic(env, installed):
+    r = ar.route("chat", primary=["openai/gpt-4o", "openai/gpt-4o-mini"])
+    assert r.tiers == (("openai/gpt-4o", "openai/gpt-4o-mini"),)
+
+
+@pytest.mark.parametrize(
+    ("primary", "error", "match"),
+    [
+        ("gpt-4o", exceptions.BadRequestError, "needs a provider prefix"),
+        ("vertex/gemini-2.5-pro", exceptions.BadRequestError, "does not set up 'vertex'"),
+        ("bedrock/anthropic.claude-sonnet-4-5", exceptions.AuthenticationError, "AWS_PROFILE or AWS_ACCESS_KEY_ID"),
+    ],
+)
+def test_route_checks_each_model_now(env, installed, primary, error, match):
+    with pytest.raises(error, match=match):
+        ar.route("chat", primary=primary)
+    assert ar.list_routes() == {}
+
+
+def test_route_needs_the_local_gateway(env, monkeypatch):
+    monkeypatch.setattr(local_gateway, "installed", lambda: False)
+    with pytest.raises(
+        exceptions.BadRequestError, match=r"routes need the local gateway.*pip install theagentrouter adds it"
+    ):
+        ar.route("chat", primary="openai/gpt-4o")
+
+
+def test_route_refuses_when_a_gateway_is_set(env, installed, monkeypatch):
+    monkeypatch.setenv("AGENTROUTER_BASE_URL", "https://gw.acme.example/v1")
+    with pytest.raises(exceptions.BadRequestError, match="Set up fallbacks in that gateway"):
+        ar.route("chat", primary="openai/gpt-4o")
+
+
+# --- the gateway config ---------------------------------------------------------------------------
+
+
+def _config(routes_: dict) -> str:
+    return local_gateway.config_yaml(["anthropic", "openai"], dict(os.environ), port=1975, models=[], routes=routes_)
+
+
+def test_a_route_is_one_gateway_route_with_a_priority_per_tier(env, installed):
+    r = ar.route("chat", primary="openai/gpt-4o", fallbacks=["openai/gpt-4o-mini"], retry=ar.Retry(attempts=2))
+    config = _config({"chat": r})
+    assert config.count('value: "chat"') == 1
+    assert 'modelNameOverride: "gpt-4o"\n          priority: 0' in config
+    assert 'modelNameOverride: "gpt-4o-mini"\n          priority: 1' in config
+    assert config.count("kind: BackendTrafficPolicy") == 1
+    assert "numAttemptsPerPriority: 3" in config  # the first try and 2 retries in each tier
+    assert "numRetries: 5" in config  # 3 tries in each of 2 tiers, minus the first
+    assert "        - 503" in config
+
+
+def test_models_in_one_tier_share_a_priority(env, installed):
+    r = ar.route("chat", primary=["openai/gpt-4o", "openai/gpt-4o-mini"], fallbacks=["anthropic/claude-sonnet-4-5"])
+    config = _config({"chat": r})
+    assert config.count("priority: 0") == 2 and config.count("priority: 1") == 1
+
+
+def test_route_without_retries_has_no_retry_policy(env, installed):
+    r = ar.route("solo", primary="openai/gpt-4o", retry=ar.Retry(attempts=0))
+    assert "BackendTrafficPolicy" not in _config({"solo": r})
+
+
+def test_fallback_without_retries_still_moves_to_the_next_tier(env, installed):
+    r = ar.route("chat", primary="openai/gpt-4o", fallbacks=["openai/gpt-4o-mini"], retry=ar.Retry(attempts=0))
+    config = _config({"chat": r})
+    assert "numAttemptsPerPriority: 1" in config and "numRetries: 1" in config
+
+
+def test_a_limit_goes_in_the_same_policy_as_the_retry(env, installed):
+    r = ar.route("chat", primary="openai/gpt-4o", fallbacks=["openai/gpt-4o-mini"], limit=ar.Limit(60, per="minute"))
+    config = _config({"chat": r})
+    assert config.count("kind: BackendTrafficPolicy") == 1  # Envoy Gateway takes one per route
+    policy = config.split("kind: BackendTrafficPolicy")[1]
+    assert "type: Local" in policy and "requests: 60" in policy and "unit: Minute" in policy
+    assert "numAttemptsPerPriority:" in policy
+
+
+def test_a_limit_alone_still_gets_a_policy(env, installed):
+    r = ar.route("solo", primary="openai/gpt-4o", retry=ar.Retry(attempts=0), limit=ar.Limit(5, per="second"))
+    config = _config({"solo": r})
+    assert "unit: Second" in config and "retry:" not in config.split("kind: BackendTrafficPolicy")[1]
+
+
+def test_limit_is_stored_and_changes_the_fingerprint(env, installed):
+    plain = ar.route("chat", primary="openai/gpt-4o")
+    limited = ar.route("chat", primary="openai/gpt-4o", limit=ar.Limit(10, per="hour"))
+    assert ar.list_routes()["chat"].limit == ar.Limit(10, per="hour")
+    assert routes.fingerprint({"chat": plain}) != routes.fingerprint({"chat": limited})
+
+
+@pytest.mark.parametrize(("args", "match"), [((0,), "1 or more"), ((5, "week"), "must be one of")])
+def test_limit_checks_its_values(args, match):
+    with pytest.raises(ValueError, match=match):
+        ar.Limit(*args)
+
+
+def test_loopback_backends_are_written_as_a_hostname(env, installed, monkeypatch):
+    # Under aigw run, IP backends of one rule cannot be told apart, so a fallback would get the
+    # first backend's model name and key.
+    monkeypatch.setitem(
+        local_gateway.PROVIDERS, "acme", {"schema": "OpenAI", "base": "http://127.0.0.1:8001/v1", "keys": ["ACME_KEY"]}
+    )
+    monkeypatch.setenv("ACME_KEY", "x")
+    config = local_gateway.config_yaml(["acme"], dict(os.environ), port=1975, models=["acme/m"])
+    assert "hostname: localhost" in config and "127.0.0.1" not in config
+
+
+def test_anthropic_in_a_route_uses_its_openai_compatible_endpoint(env, installed):
+    r = ar.route("chat", primary="openai/gpt-4o", fallbacks=["anthropic/claude-sonnet-4-5"])
+    config = _config({"chat": r})
+    assert "name: anthropic-openai" in config
+    assert 'modelNameOverride: "claude-sonnet-4-5"' in config
+    backend = config.split("name: anthropic-openai\n  namespace: default\nspec:")[1].split("---")[0]
+    assert "hostname: api.anthropic.com" in backend
+    assert "apiKey: ${ANTHROPIC_API_KEY}" in config and "sk-ant-test" not in config
+
+
+def test_a_route_name_takes_over_a_model_rule(env, installed):
+    r = ar.route("openai/gpt-4o", primary="openai/gpt-4o", fallbacks=["openai/gpt-4o-mini"])
+    config = local_gateway.config_yaml(
+        ["openai"], dict(os.environ), port=1975, models=["openai/gpt-4o"], routes={r.name: r}
+    )
+    assert config.count('value: "openai/gpt-4o"\n') == 1  # the route's rule, not the plain model rule
+    assert "priority: 1" in config
+
+
+def test_backends_ready_needs_every_host_of_every_route(env, installed, monkeypatch):
+    r = ar.route("chat", primary="openai/gpt-4o", fallbacks=["anthropic/claude-sonnet-4-5"])
+    cluster = f"httproute/default/{local_gateway._k8s_name('chat')}/rule/0"
+    openai_only = f"{cluster}::1.2.3.4:443::hostname::api.openai.com\n"
+    both = openai_only + f"{cluster}::5.6.7.8:443::hostname::api.anthropic.com\n"
+
+    class Reply:
+        def __init__(self, text):
+            self.text = text
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return self.text.encode()
+
+    import urllib.request
+
+    for text, ready in ((openai_only, False), (both, True)):
+        monkeypatch.setattr(urllib.request, "urlopen", lambda *a, text=text, **k: Reply(text))
+        assert local_gateway._backends_ready(1, {"chat": r}) is ready
+
+
+# --- where a route name goes ----------------------------------------------------------------------
+
+
+def _serve_route(env, fake, r):
+    """Pretend the local gateway is running with this route; the fake provider stands in for it."""
+    _write_state(env, _port(fake.url), ["anthropic", "openai"])
+    state = json.loads((env / "local-gateway" / "state.json").read_text())
+    state.update(routes=[r.name], routes_fingerprint=routes.fingerprint({r.name: r}))
+    (env / "local-gateway" / "state.json").write_text(json.dumps(state))
+
+
+def test_route_name_goes_through_the_local_gateway(env, installed, fake, monkeypatch):
+    r = ar.route("chat", primary="openai/gpt-4o-mini", fallbacks=["anthropic/claude-sonnet-4-5"])
+    _serve_route(env, fake, r)
+    monkeypatch.setattr(local_gateway, "_start", lambda *a, **k: pytest.fail("restarted a gateway that is current"))
+
+    resp = ar.completion(model="chat", messages=HELLO)
+    path, headers, body = fake.requests[-1]
+    assert path == "/v1/chat/completions" and body["model"] == "chat"  # the gateway picks the model
+    assert len(fake.requests) == 1  # retries and fallbacks are the gateway's, not the SDK's
+    assert "authorization" not in headers
+    assert resp._hidden_params["route"] == "local gateway"
+    assert resp._hidden_params["route_name"] == "chat"
+
+
+@pytest.mark.parametrize(
+    ("reply", "served"),
+    [
+        ("gpt-4o-mini-2024-07-18", "openai/gpt-4o-mini"),
+        ("gpt-4o-2024-08-06", "openai/gpt-4o"),
+        ("claude-sonnet-4-5-20250929", "anthropic/claude-sonnet-4-5"),
+        ("something-else", None),
+        (None, None),
+    ],
+)
+def test_served_by_is_read_from_the_reply_model(reply, served):
+    from theagentrouter.transport import served_by
+
+    members = ("openai/gpt-4o", "openai/gpt-4o-mini", "anthropic/claude-sonnet-4-5")
+    assert served_by(reply, members) == served
+
+
+def test_changed_routes_restart_the_gateway(env, installed, monkeypatch):
+    calls = []
+    old = {
+        "pid": 1,
+        "port": 1975,
+        "providers": ["openai"],
+        "models": [],
+        "routes": ["chat"],
+        "routes_fingerprint": "x",
+        "versions": local_gateway.versions(),
+    }
+    monkeypatch.setattr(local_gateway, "running", lambda: old)
+    monkeypatch.setattr(local_gateway, "stop", lambda state=None: calls.append("stop"))
+    monkeypatch.setattr(
+        local_gateway, "_start", lambda providers, models, routes=None: calls.append(("start", sorted(routes))) or {}
+    )
+    ar.route("chat", primary="openai/gpt-4o")
+    local_gateway.ensure("chat")
+    assert calls == ["stop", ("start", ["chat"])]
+
+
+def test_unknown_name_says_how_to_define_a_route(env):
+    with pytest.raises(exceptions.BadRequestError, match=r"theagentrouter\.route\(\)"):
+        ar.completion(model="chat", messages=HELLO)
+
+
+def test_fallbacks_argument_points_to_routes(env, fake):
+    with pytest.warns(UserWarning, match="define a route"):
+        ar.completion(model="openai/gpt-4o-mini", messages=HELLO, api_base=fake.url, fallbacks=["anthropic/x"])
+
+
+# --- LiteLLM's Router -----------------------------------------------------------------------------
+
+
+def test_router_turns_groups_and_fallbacks_into_routes(env, installed):
+    router = litellm.Router(
+        model_list=[
+            {"model_name": "chat", "litellm_params": {"model": "openai/gpt-4o"}},
+            {"model_name": "chat", "litellm_params": {"model": "openai/gpt-4o-mini"}},
+            {"model_name": "backup", "litellm_params": {"model": "anthropic/claude-sonnet-4-5"}},
+        ],
+        fallbacks=[{"chat": ["backup"]}],
+        num_retries=2,
+    )
+    chat = ar.list_routes()["chat"]
+    assert chat.tiers == (("openai/gpt-4o", "openai/gpt-4o-mini"), ("anthropic/claude-sonnet-4-5",))
+    assert chat.retry.attempts == 2
+    assert 404 in chat.retry.on and 401 in chat.retry.on  # LiteLLM's Router falls back on these too
+    assert ar.list_routes()["backup"].tiers == (("anthropic/claude-sonnet-4-5",),)
+    assert set(router.routes) == {"chat", "backup"}
+
+
+def test_router_takes_keys_from_the_environment(env, installed):
+    with pytest.warns(UserWarning, match="api_key for chat is not used"):
+        litellm.Router(
+            model_list=[{"model_name": "chat", "litellm_params": {"model": "openai/gpt-4o", "api_key": "sk-x"}}]
+        )
+    with warnings.catch_warnings(record=True) as seen:
+        warnings.simplefilter("always")
+        litellm.Router(
+            model_list=[
+                {
+                    "model_name": "chat",
+                    "litellm_params": {"model": "openai/gpt-4o", "api_key": "os.environ/OPENAI_API_KEY"},
+                }
+            ]
+        )
+    assert not [w for w in seen if "api_key" in str(w.message)]
+
+
+def test_router_rejects_unknown_fallback_groups(env, installed):
+    with pytest.raises(exceptions.BadRequestError, match="not in model_list"):
+        litellm.Router(
+            model_list=[{"model_name": "chat", "litellm_params": {"model": "openai/gpt-4o"}}],
+            fallbacks=[{"chat": ["nope"]}],
+        )
+
+
+# --- the real aigw --------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def second_fake(real_gateway, monkeypatch):
+    """A second provider at its own address: "acme2" answers from here, "acme" from the first."""
+    from .fake_provider import FakeProvider
+
+    server = FakeProvider()
+    monkeypatch.setitem(
+        local_gateway.PROVIDERS, "acme2", {"schema": "OpenAI", "base": server.url, "keys": ["ACME2_KEY"]}
+    )
+    monkeypatch.setenv("ACME2_KEY", "acme2-secret")
+    yield server
+    server.close()
+
+
+@needs_aigw
+@needs_xds_port
+def test_real_gateway_falls_back_to_the_next_model(real_gateway, second_fake):
+    first = real_gateway
+    ar.route("chat", primary="acme/err-500", fallbacks=["acme2/acme-small"], retry=ar.Retry(attempts=1))
+
+    resp = ar.completion(model="chat", messages=HELLO)
+    assert resp.choices[0].message.content == "echo: refunds yesterday"
+    # Each backend gets its own model name and key: the two tries of the primary, then the fallback.
+    assert [(b["model"], h.get("authorization")) for _, h, b in first.requests] == [
+        ("err-500", "Bearer acme-secret")
+    ] * 2
+    assert [(b["model"], h.get("authorization")) for _, h, b in second_fake.requests] == [
+        ("acme-small", "Bearer acme2-secret")
+    ]
+    assert resp._hidden_params["served_by"] == "acme2/acme-small"
+
+
+@needs_aigw
+@needs_xds_port
+def test_exported_config_serves_a_team_gateway(real_gateway, second_fake, env, monkeypatch):
+    """aigw run on the exported config, as a team runs it on a server, serves the same calls and routes."""
+    ar.route("chat", primary="acme/err-500", fallbacks=["acme2/acme-small"], retry=ar.Retry(attempts=1))
+    port = _free_port()
+    server = env.parent / "server"
+    server.mkdir()
+    (server / "config.yaml").write_text(
+        local_gateway.export_config(port=port, providers=["acme", "acme2", "anthropic"], models=["acme/acme-large"])
+    )
+    aigw_env = dict(
+        os.environ,
+        AIGW_CONFIG_HOME=str(server / "config-home"),
+        AIGW_STATE_HOME=str(server / "state"),
+        AIGW_RUNTIME_DIR=str(local_gateway._runtime_dir()),
+    )
+    with open(server / "aigw.log", "wb") as log:
+        proc = subprocess.Popen(
+            [local_gateway._binary(), "run", str(server / "config.yaml"), f"--admin-port={_free_port()}"],
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            env=aigw_env,
+            start_new_session=True,
+        )
+    try:
+        deadline = time.monotonic() + 120
+        while not (
+            "listening on" in (server / "aigw.log").read_text(errors="replace") and local_gateway._listening(port)
+        ):
+            assert proc.poll() is None and time.monotonic() < deadline, (server / "aigw.log").read_text()[-2000:]
+            time.sleep(0.2)
+        monkeypatch.setenv("AGENTROUTER_BASE_URL", f"http://127.0.0.1:{port}/v1")
+        monkeypatch.setenv("AGENTROUTER_AUTOSTART", "0")
+        warnings.simplefilter("ignore", UserWarning)  # "chat" is a route here too; the server has the same one
+
+        r = ar.completion(model="acme/acme-large", messages=HELLO)
+        assert r.choices[0].message.content == "echo: refunds yesterday" and r._hidden_params["route"] == "gateway"
+        r = ar.completion(model="claude-sonnet-4-5", messages=HELLO)
+        assert r._hidden_params["format"] == "anthropic" and real_gateway.requests[-1][0].endswith("/messages")
+        # The route's fallback, once Envoy has looked up the backends' hostnames: the server's route
+        # tries acme/err-500, then answers from acme2. (The SDK does not know a remote gateway's routes,
+        # so it cannot say which model answered.)
+        while not second_fake.requests:
+            assert time.monotonic() < deadline
+            with contextlib.suppress(exceptions.APIError):
+                r = ar.completion(model="chat", messages=HELLO)
+            time.sleep(0.5)
+        assert r.choices[0].message.content == "echo: refunds yesterday"
+        assert second_fake.requests[-1][2]["model"] == "acme-small"
+        assert local_gateway.running() is None  # the SDK started nothing on this computer
+    finally:
+        os.killpg(proc.pid, signal.SIGTERM)
+        proc.wait(timeout=30)
+
+
+@needs_aigw
+@needs_xds_port
+def test_real_gateway_tries_the_primary_first_every_time(real_gateway, second_fake):
+    ar.route("chat", primary="acme/acme-large", fallbacks=["acme2/acme-small"])
+    for _ in range(6):
+        assert ar.completion(model="chat", messages=HELLO)._hidden_params["served_by"] == "acme/acme-large"
+    assert second_fake.requests == []
+
+
+@needs_aigw
+@needs_xds_port
+def test_real_gateway_retries_then_gives_up(real_gateway):
+    fake = real_gateway
+    ar.route("flaky", primary="acme/err-500", retry=ar.Retry(attempts=2))
+    with pytest.raises(exceptions.InternalServerError):
+        ar.completion(model="flaky", messages=HELLO)
+    assert sum(1 for _, _, body in fake.requests if body["model"] == "err-500") == 3
+
+
+@needs_aigw
+@needs_xds_port
+def test_real_gateway_does_not_retry_what_is_not_listed(real_gateway):
+    fake = real_gateway
+    ar.route("strict", primary="acme/err-401", retry=ar.Retry(attempts=2))
+    with pytest.raises(exceptions.AuthenticationError):
+        ar.completion(model="strict", messages=HELLO)
+    assert sum(1 for _, _, body in fake.requests if body["model"] == "err-401") == 1
+
+
+@needs_aigw
+@needs_xds_port
+def test_real_gateway_serves_litellm_router(real_gateway, second_fake):
+    router = litellm.Router(
+        model_list=[
+            {"model_name": "main", "litellm_params": {"model": "acme/err-429"}},
+            {"model_name": "spare", "litellm_params": {"model": "acme2/acme-small"}},
+        ],
+        fallbacks=[{"main": ["spare"]}],
+        num_retries=0,
+    )
+    resp = router.completion(model="main", messages=HELLO)
+    assert resp.choices[0].message.content == "echo: refunds yesterday"
+    assert [b["model"] for _, _, b in real_gateway.requests] == ["err-429"]
+    assert [b["model"] for _, _, b in second_fake.requests] == ["acme-small"]
+
+
+@needs_aigw
+@needs_xds_port
+def test_real_gateway_enforces_a_request_limit(real_gateway):
+    fake = real_gateway
+    ar.route("capped", primary="acme/acme-large", retry=ar.Retry(attempts=0), limit=ar.Limit(2, per="minute"))
+    ar.completion(model="capped", messages=HELLO)
+    ar.completion(model="capped", messages=HELLO)
+    with pytest.raises(exceptions.RateLimitError):
+        ar.completion(model="capped", messages=HELLO)
+    assert sum(1 for _, _, body in fake.requests if body["model"] == "acme-large") == 2  # the third never left

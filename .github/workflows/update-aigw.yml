@@ -1,0 +1,71 @@
+name: Update aigw
+
+# Opens a pull request when Agent Router publishes a new aigw release. Dependabot cannot do this:
+# the version and the SHA-256 of each platform's file live in local-gateway/aigw-release.json.
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write        # push the branch
+  pull-requests: write   # open the pull request
+  actions: write         # start CI and Security on the branch
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MANIFEST: local-gateway/aigw-release.json
+    steps:
+      - uses: actions/checkout@v7
+      - name: Update aigw-release.json and open a pull request
+        run: |
+          repo=$(jq -r .repository "$MANIFEST")
+          current=$(jq -r .version "$MANIFEST")
+          # The latest release; GitHub leaves out pre-releases and drafts.
+          latest=$(gh release view -R "$repo" --json tagName -q .tagName)
+          if [ "$latest" = "$current" ]; then
+            echo "aigw $current is the latest release"
+            exit 0
+          fi
+          branch="update-aigw-$latest"
+          if git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
+            echo "$branch already exists"
+            exit 0
+          fi
+
+          # GitHub records a SHA-256 for every release file. Every platform in the manifest needs one.
+          gh release view "$latest" -R "$repo" --json assets > assets.json
+          jq --arg version "$latest" --slurpfile release assets.json '
+            .version = $version
+            | .assets |= with_entries(
+                .key as $platform
+                | .value = ([$release[0].assets[] | select(.name == "aigw-" + $platform) | .digest // ""]
+                    | if length == 1 and (.[0] | startswith("sha256:")) then .[0][7:]
+                      else error("no SHA-256 for aigw-" + $platform + " in " + $version) end))
+          ' "$MANIFEST" > manifest.json
+          mv manifest.json "$MANIFEST"
+          rm assets.json
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -am "Update aigw to $latest"
+          git push origin "$branch"
+
+          {
+            echo "Agent Router published aigw [$latest](https://github.com/$repo/releases/tag/$latest). This updates \`$MANIFEST\` to it, with the SHA-256 GitHub records for each platform's file."
+            echo
+            echo "CI and Security run on this branch: the tests with the new aigw, and whether it still has known vulnerabilities."
+            echo
+            echo "Before merging, update the files that still name $current:"
+            echo
+            git grep -n -F "$current" -- . ":!$MANIFEST" ":!llms-full.txt" | cut -d: -f1,2 | sed 's/^/- /'
+          } > body.md
+          gh pr create --head "$branch" --title "Update aigw to $latest" --body-file body.md
+
+          # A pull request opened with this workflow's token starts no workflows, so start them here.
+          gh workflow run ci.yml --ref "$branch"
+          gh workflow run security.yml --ref "$branch"

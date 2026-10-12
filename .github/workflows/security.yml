@@ -1,0 +1,62 @@
+name: Security
+
+# Known vulnerabilities (CVEs) in what the packages ship: the SDK's Python dependencies,
+# and the aigw program in theagentrouter-local-gateway. Runs only when one of them changes,
+# and weekly, because new vulnerabilities are published against code that has not changed.
+# Nothing waits for this workflow: not merges, not releases, not the CI badge.
+on:
+  push:
+    branches: [main]
+    paths: &scanned
+      - pyproject.toml
+      - packages/theagentrouter/pyproject.toml
+      - local-gateway/aigw-release.json
+      - .github/workflows/security.yml
+  pull_request:
+    paths: *scanned
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-dependencies:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install pip-audit
+      # Resolves theagentrouter-core's dependencies from pyproject.toml and checks each one.
+      - run: pip-audit --strict .
+
+  aigw:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+      - run: python scripts/fetch_aigw.py
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      # Only vulnerabilities in code aigw actually calls. Fixing one needs a new aigw release, which
+      # update-aigw.yml brings in, so a finding is a warning here, not a failure.
+      - name: govulncheck
+        run: |
+          code=0
+          govulncheck -mode=binary local-gateway/src/theagentrouter_local_gateway/bin/aigw > report.txt || code=$?
+          cat report.txt
+          if [ "$code" = 3 ]; then
+            version=$(jq -r .version local-gateway/aigw-release.json)
+            count=$(grep -c '^Vulnerability #' report.txt)
+            echo "::warning title=aigw $version has $count known vulnerabilities::Fixing them needs a new aigw release. update-aigw.yml opens a pull request when one is published."
+            { echo "## aigw $version: $count known vulnerabilities"; echo '```'; cat report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$code" != 0 ]; then
+            exit "$code"
+          fi

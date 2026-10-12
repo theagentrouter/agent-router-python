@@ -1,0 +1,91 @@
+# Coming from LiteLLM
+
+theagentrouter keeps LiteLLM's way of calling models: the same `completion` arguments, the same response shape and the same error names. Most code moves with one changed import. This page says exactly what moves, what is missing, and what is ignored.
+
+## Change the import
+
+In your own code:
+
+```python
+from theagentrouter.compat import litellm   # was: import litellm
+
+resp = litellm.completion(model="openai/gpt-4o-mini", messages=messages)
+```
+
+When a library you use imports `litellm` itself, as Google ADK and the OpenAI Agents SDK do, make that import answer with theagentrouter instead. Call this once, before importing the library:
+
+```python
+from theagentrouter.compat import install_as_litellm
+install_as_litellm()
+```
+
+LiteLLM does not need to be installed. See [Agent frameworks](frameworks.md).
+
+A full example: [`examples/11_from_litellm.py`](../examples/11_from_litellm.py). With `Router`: [`examples/12_litellm_router.py`](../examples/12_litellm_router.py).
+
+## What works the same
+
+| LiteLLM | theagentrouter |
+|---|---|
+| `completion`, `acompletion` | Same arguments and response shape |
+| `embedding`, `aembedding` | Same arguments (`input`, `dimensions`, `encoding_format`, `user`) and response shape. Anthropic has no embeddings API, so `anthropic/` models raise `BadRequestError` |
+| `stream=True` | Same chunks, with `usage` on the last one |
+| `tools`, `tool_choice`, `parallel_tool_calls` | OpenAI-shaped inputs, translated for Anthropic too; `parallel_tool_calls=False` disables parallel Anthropic tool calls |
+| `response_format`, `temperature`, `max_tokens` and the other OpenAI parameters | Passed through for OpenAI Chat Completions. Unsupported Anthropic options raise `UnsupportedParamsError` ([the full list](usage.md#parameters)) |
+| `api_base`, `timeout`, `extra_headers`, `extra_body` | Same |
+| `api_key` | Used with `api_base`, or as the key of a gateway you set. With the local gateway it is ignored with a warning: the gateway reads provider keys from the environment ([Models and keys](usage.md#models-and-keys)) |
+| Errors: `RateLimitError`, `ContextWindowExceededError`, `AuthenticationError` and the rest | Same names, under `litellm.` and `theagentrouter.exceptions` |
+| `responses`, `aresponses` | Same arguments, for OpenAI models, through the gateway's `/v1/responses` ([The Responses API](usage.md#the-responses-api)) |
+| `anthropic.messages.create`, `acreate`, `anthropic_messages` | Same arguments, for Claude, through the gateway's `/anthropic/v1/messages`, in Anthropic's format ([The Messages API](usage.md#the-messages-api)) |
+| `success_callback`, `failure_callback`, `callbacks` | Your functions and logger objects are called after each call ([Callbacks](usage.md#callbacks)) |
+| `stream_chunk_builder`, `validate_environment`, `model_list`, `cost_calculator.completion_cost` | Same |
+| `token_counter` | Same arguments. OpenAI and Anthropic are counted by the gateway, exactly; the rest are estimated as LiteLLM does, with tiktoken from `theagentrouter[tokens]` ([Counting tokens](usage.md#counting-tokens)) |
+| `completion_cost`, `cost_per_token`, `get_model_info`, `model_cost`, `supports_*`, `register_model` | Same, from the model list that ships with each release plus the models you register |
+| `get_llm_provider`, `get_supported_openai_params`, `provider_list` | Same names; parameter discovery excludes options the SDK cannot translate for Anthropic calls |
+| `drop_params`, `set_verbose`, `suppress_debug_info` | Accepted. Unknown parameters are always dropped |
+| Response types under `litellm.types.utils` (`ModelResponse`, `Choices`, `Message`, `Usage` and others) | Same names |
+| `Router` | For `model_list`, `fallbacks` and `num_retries`: the groups become routes in the local gateway, which does the retries and fallbacks. Deployments with one `model_name` share its traffic; keys come from the environment. Other `Router` options warn and are ignored. See [Routes](usage.md#routes-fallbacks-retries-and-names-of-your-own) |
+
+## What is missing
+
+These are not in theagentrouter. Code that uses them fails with `AttributeError`:
+
+| LiteLLM | Instead |
+|---|---|
+| `image_generation`, `transcription`, `speech` | Not available |
+| `text_completion` | Use `completion` with messages |
+| LiteLLM's built-in logging integrations (`success_callback = ["langfuse"]`) | The gateway's OpenTelemetry traces and metrics. Your own callback functions and loggers work: [Callbacks](usage.md#callbacks) |
+| The LiteLLM proxy server | Agent Router, the gateway: [Gateways](usage.md#gateways) |
+
+## Ignored, with a warning
+
+These `completion` arguments work in LiteLLM but do nothing in theagentrouter. Code that relied on one, say `fallbacks`, would keep running without it and nobody would notice, so each of these warns the first time it is used:
+
+| Argument | Instead |
+|---|---|
+| `num_retries`, `max_retries` | Define a route with a `Retry`, or use `Router(num_retries=...)` |
+| `fallbacks`, `context_window_fallbacks`, `content_policy_fallbacks` | Define a route with fallbacks, or use `Router(fallbacks=...)` |
+| `caching`, `cache` | A gateway caches |
+| `metadata`, `tags`, `callbacks`, `logger_fn` (as arguments on one call) | The gateway's request logs record calls; for callbacks, set the module's lists ([Callbacks](usage.md#callbacks)) |
+| `mock_response` | Use a test server with `api_base` |
+| `custom_llm_provider` | Name the provider in the model, for example `openai/gpt-4o-mini` |
+| `api_version` | Azure OpenAI goes through a gateway |
+
+A value that asks for nothing, such as `num_retries=0`, does not warn.
+
+## Other differences
+
+| | LiteLLM | theagentrouter |
+|---|---|---|
+| Model names | OpenAI and Anthropic names work without a provider; a bare `gemini-…` goes to Vertex AI; the rest need `provider/model` | The same for OpenAI and Anthropic, and the rest. A bare `gemini-…` is refused with the reason, because Vertex AI is not in the local gateway yet: write `gemini/…` for the Gemini API. Every gateway gets the name as you wrote it |
+| Where calls go | The library calls more than 100 providers itself | Always through a gateway: Agent Router on this computer, or one you set with `AGENTROUTER_BASE_URL`. The SDK holds no provider addresses or keys; the gateway does |
+| Model list | About 4,000 entries, downloaded from GitHub every time `litellm` is imported | About 230 entries, shipped with each release and never downloaded while running. `register_model` adds more, including LiteLLM's whole list. `get_model_info` raises `NotFoundError` for a model that is not on the list |
+| Install | Many dependencies | `theagentrouter-core`: one dependency, `httpx`. `theagentrouter`: that plus the local gateway (about 80 MB) |
+
+## Check your code
+
+1. Change the import, or call `install_as_litellm()` before the library that imports `litellm`.
+2. Check model names with no provider: OpenAI and Anthropic names work as they are; add the provider to the rest (`mistral/…`, `groq/…`), and write `gemini/…` for Gemini.
+3. Remove `api_key=` from calls that use the local gateway, and set the provider's key in the environment instead.
+4. Run your tests with warnings shown (`python -W default`, or pytest's warnings summary). Every ignored argument is named there once.
+5. Search your code for the names under [What is missing](#what-is-missing).

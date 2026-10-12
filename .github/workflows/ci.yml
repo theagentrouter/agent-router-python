@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+  workflow_dispatch:   # update-aigw.yml starts CI on the branch it opens
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: pytest
+      - run: python scripts/check_release.py
+
+  adk:
+    # A real Google ADK agent on this SDK, in an environment without LiteLLM.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[test]" google-adk
+      - run: python -c "import importlib.util as u, sys; sys.exit(u.find_spec('litellm') is not None)"
+      - run: pytest tests/test_adk.py --junitxml=adk-tests.xml
+      - run: python scripts/check_test_report.py adk-tests.xml
+
+  openai-agents:
+    # A real OpenAI Agents SDK agent on this SDK, in an environment without LiteLLM.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[test]" openai-agents
+      - run: python -c "import importlib.util as u, sys; sys.exit(u.find_spec('litellm') is not None)"
+      - run: pytest tests/test_openai_agents.py --junitxml=agents-tests.xml
+      - run: python scripts/check_test_report.py agents-tests.xml
+
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install build twine
+      - run: python -m build                                         # theagentrouter-core
+      - run: python -m build packages/theagentrouter --outdir dist   # theagentrouter, no code
+      - run: python -m twine check --strict dist/*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  local-gateway:
+    uses: ./.github/workflows/local-gateway-build.yml

@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling", "hatch-fancy-pypi-readme"]
+build-backend = "hatchling.build"
+
+# No code of its own: installs the SDK (theagentrouter-core) and, where it is built, the local gateway
+# (theagentrouter-local-gateway). For a remote gateway only, install theagentrouter-core instead.
+[project]
+name = "theagentrouter"
+version = "0.1.0a2"
+description = "LiteLLM's API with Agent Router underneath: the SDK and the local gateway."
+dynamic = ["readme"]
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Tetrate" }]
+keywords = ["llm", "ai", "agents", "litellm", "openai", "anthropic", "gateway", "sdk"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "theagentrouter-core==0.1.0a2",
+    # One wheel per platform, plus a fallback wheel with no program that pip picks where none fits.
+    "theagentrouter-local-gateway==0.1.0a2",
+]
+
+[project.optional-dependencies]
+# Older instructions said theagentrouter[local-gateway]; the local gateway is a dependency already.
+local-gateway = []
+tokens = ["theagentrouter-core[tokens]==0.1.0a2"]
+
+[project.urls]
+Homepage = "https://github.com/theagentrouter/agent-router-python"
+
+# The PyPI page shows the repository README. PyPI does not follow relative links, so they become absolute.
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "../../README.md"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '(src=")(?!https?://)([^"]+)"'
+replacement = '\1https://raw.githubusercontent.com/theagentrouter/agent-router-python/main/\2"'
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '(href=")(?!https?://|#)([^"]+)"'
+replacement = '\1https://github.com/theagentrouter/agent-router-python/blob/main/\2"'
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '(\]\()(?!https?://|#)([^)]+)\)'
+replacement = '\1https://github.com/theagentrouter/agent-router-python/blob/main/\2)'
+
+[tool.hatch.build.targets.wheel]
+bypass-selection = true  # no code; this package only installs the other two
+
+[tool.hatch.build.targets.sdist]
+include = ["pyproject.toml", "LICENSE"]
