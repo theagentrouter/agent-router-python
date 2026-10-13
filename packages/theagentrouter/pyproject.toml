@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 # (theagentrouter-local-gateway). For a remote gateway only, install theagentrouter-core instead.
 [project]
 name = "theagentrouter"
-version = "0.1.0a2"
+version = "0.1.0a3"
 description = "LiteLLM's API with Agent Router underneath: the SDK and the local gateway."
 dynamic = ["readme"]
 requires-python = ">=3.10"
@@ -25,15 +25,15 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "theagentrouter-core==0.1.0a2",
+    "theagentrouter-core==0.1.0a3",
     # One wheel per platform, plus a fallback wheel with no program that pip picks where none fits.
-    "theagentrouter-local-gateway==0.1.0a2",
+    "theagentrouter-local-gateway==0.1.0a3",
 ]
 
 [project.optional-dependencies]
 # Older instructions said theagentrouter[local-gateway]; the local gateway is a dependency already.
 local-gateway = []
-tokens = ["theagentrouter-core[tokens]==0.1.0a2"]
+tokens = ["theagentrouter-core[tokens]==0.1.0a3"]
 
 [project.urls]
 Homepage = "https://github.com/theagentrouter/agent-router-python"

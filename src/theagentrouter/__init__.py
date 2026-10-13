@@ -43,7 +43,7 @@ from .routing import validate_environment
 from .tokens import token_counter
 from .types import ModelResponse, ModelResponseStream, stream_chunk_builder
 
-__version__ = "0.1.0a2"
+__version__ = "0.1.0a3"
 
 
 def completion(
