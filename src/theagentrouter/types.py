@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any
 
 
@@ -29,7 +29,14 @@ class _DictAccess:
     def to_dict(self) -> dict[str, Any]:
         return {k: v for k, v in asdict(self).items() if not k.startswith("_")}
 
-    model_dump = to_dict  # the name pydantic-based callers use
+    def model_dump(self, *, mode: str = "python", exclude_none: bool = False) -> dict[str, Any]:
+        """Serialize response fields; omit model fields whose values are None when exclude_none=True.
+
+        JSON nulls inside payload dictionaries and lists remain data, not model fields.
+        """
+        if mode not in ("python", "json"):
+            raise ValueError("mode must be 'python' or 'json'")
+        return _dump(self, mode=mode, exclude_none=exclude_none)
 
     def model_copy(self, *, update: dict[str, Any] | None = None, deep: bool = False) -> Any:
         """pydantic's copy, which the OpenAI Agents SDK calls on stream chunks."""
@@ -132,6 +139,23 @@ class ModelResponseStream(_DictAccess):
     usage: Usage | None = None
     created: int = field(default_factory=lambda: int(time.time()))
     object: str = "chat.completion.chunk"
+
+
+def _dump(value: Any, *, mode: str, exclude_none: bool) -> Any:
+    if isinstance(value, _DictAccess):
+        return {
+            item.name: _dump(getattr(value, item.name), mode=mode, exclude_none=exclude_none)
+            for item in fields(value)
+            if not item.name.startswith("_") and not (exclude_none and getattr(value, item.name) is None)
+        }
+    if isinstance(value, dict):
+        return {key: _dump(item, mode=mode, exclude_none=exclude_none) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_dump(item, mode=mode, exclude_none=exclude_none) for item in value]
+    if isinstance(value, tuple):
+        items = [_dump(item, mode=mode, exclude_none=exclude_none) for item in value]
+        return items if mode == "json" else tuple(items)
+    return copy.deepcopy(value)
 
 
 def _field(obj: Any, key: str) -> Any:

@@ -2,6 +2,20 @@
 
 All notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- LiteLLM's `mock_response`, with `mock_tool_calls`, `mock_timeout` and `mock_delay`: `completion` and `acompletion` answer on this computer, streamed or not, with no gateway and no provider call. It was ignored with a warning, so a test that used it called the provider.
+
+### Fixed
+
+- Chat Completions responses and stream chunks accept `model_dump(mode="json", exclude_none=True)`. Optional model fields are omitted recursively while null values inside payload dictionaries and lists are kept.
+
+### Changed
+
+- The migration guide explains how Chat Completions responses serialize.
+
 ## [0.1.0a2] - 2026-10-13
 
 ### Changed

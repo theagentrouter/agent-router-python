@@ -358,3 +358,55 @@ def test_model_list_keys_name_the_provider_once():
     # DeepInfra's catalog already prefixes its model names; scripts/sync_models.py must not add it twice.
     doubled = [k for k in theagentrouter.model_cost if k.split("/")[0] == k.split("/")[1]]
     assert doubled == []
+
+
+@pytest.mark.parametrize("model", ["openai/gpt-4o-mini", "anthropic/claude-sonnet-4-5"])
+def test_model_dump_exclude_none_keeps_tool_calls_for_the_next_turn(fake, model):
+    response = theagentrouter.completion(model=model, messages=HELLO, tools=TOOLS, api_base=fake.url)
+    assert response.model_dump() == response.to_dict()
+    data = response.model_dump(mode="json", exclude_none=True)
+    assert "_hidden_params" not in data
+    message = data["choices"][0]["message"]
+    assert "content" not in message and "reasoning_content" not in message
+    if response.choices[0].logprobs is None:
+        assert "logprobs" not in data["choices"][0]
+    else:
+        assert data["choices"][0]["logprobs"] == response.choices[0].logprobs
+    call = message["tool_calls"][0]
+    assert json.loads(call["function"]["arguments"]) == {"query": "refunds yesterday"}
+    reply = theagentrouter.completion(
+        model=model,
+        api_base=fake.url,
+        messages=[*HELLO, message, {"role": "tool", "tool_call_id": call["id"], "content": "3 refunds"}],
+    )
+    assert reply.choices[0].message.content == "echo: 3 refunds"
+    assert response.choices[0].message.content is None
+
+
+def test_model_dump_preserves_payload_nulls_and_does_not_mutate_response():
+    from theagentrouter.types import Message, Usage
+
+    usage = Usage(prompt_tokens_details={"cached_tokens": 0, "custom": None, "values": (None, 1)})
+    data = usage.model_dump(mode="json", exclude_none=True)
+    assert "completion_tokens_details" not in data
+    assert data["prompt_tokens_details"] == {"cached_tokens": 0, "custom": None, "values": [None, 1]}
+    assert usage.model_dump()["prompt_tokens_details"]["values"] == (None, 1)
+    data["prompt_tokens_details"]["cached_tokens"] = 99
+    assert usage.prompt_tokens_details["cached_tokens"] == 0
+    message = Message(thinking_blocks=[{"type": "thinking", "thinking": "", "signature": None}])
+    assert message.model_dump(exclude_none=True)["thinking_blocks"][0]["signature"] is None
+    with pytest.raises(ValueError, match="mode"):
+        message.model_dump(mode="invalid")
+
+
+@pytest.mark.parametrize("model", ["openai/gpt-4o-mini", "anthropic/claude-sonnet-4-5"])
+def test_stream_chunk_model_dump_exclude_none(fake, model):
+    chunks = list(theagentrouter.completion(model=model, messages=HELLO, api_base=fake.url, stream=True))
+    dumped = [chunk.model_dump(mode="json", exclude_none=True) for chunk in chunks]
+    assert any("usage" not in chunk for chunk in dumped)
+    assert all("_hidden_params" not in chunk for chunk in dumped)
+    text = "".join(choice["delta"].get("content", "") for chunk in dumped for choice in chunk["choices"])
+    original_text = "".join(choice.delta.content or "" for chunk in chunks for choice in chunk.choices)
+    assert text == original_text
+    assert text.strip() == "echo: refunds yesterday"
+    assert json.loads(json.dumps(dumped)) == dumped

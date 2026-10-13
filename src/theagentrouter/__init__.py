@@ -22,7 +22,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
-from . import anthropic, exceptions, models, transport
+from . import anthropic, exceptions, mock, models, transport
 from .anthropic_messages import AnthropicMessagesResponse, anthropic_messages
 from .embeddings import EmbeddingResponse, aembedding, embedding
 from .models import (
@@ -54,6 +54,8 @@ def completion(
     Common params: api_key, api_base, timeout, temperature, max_tokens, tool_choice, response_format,
     extra_headers, extra_body, user.
     """
+    if mock.requested(params):  # LiteLLM's mock_response: answered here, nothing is sent
+        return mock.stream(model, params) if stream else mock.complete(model, params)
     if stream:
         return transport.stream(model, messages, tools, params)
     return transport.complete(model, messages, tools, params)
@@ -63,6 +65,8 @@ async def acompletion(
     model: str, messages: list[Any], *, stream: bool = False, tools: list[dict[str, Any]] | None = None, **params: Any
 ) -> ModelResponse | AsyncIterator[ModelResponseStream]:
     """Same arguments as litellm.acompletion."""
+    if mock.requested(params):
+        return await (mock.astream(model, params) if stream else mock.acomplete(model, params))
     if stream:
         return transport.astream(model, messages, tools, params)
     return await transport.acomplete(model, messages, tools, params)

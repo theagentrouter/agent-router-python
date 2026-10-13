@@ -38,6 +38,7 @@ A full example: [`examples/11_from_litellm.py`](../examples/11_from_litellm.py).
 | `responses`, `aresponses` | Same arguments, for OpenAI models, through the gateway's `/v1/responses` ([The Responses API](usage.md#the-responses-api)) |
 | `anthropic.messages.create`, `acreate`, `anthropic_messages` | Same arguments, for Claude, through the gateway's `/anthropic/v1/messages`, in Anthropic's format ([The Messages API](usage.md#the-messages-api)) |
 | `success_callback`, `failure_callback`, `callbacks` | Your functions and logger objects are called after each call ([Callbacks](usage.md#callbacks)) |
+| `mock_response`, `mock_tool_calls`, `mock_timeout`, `mock_delay` | Same: the answer is made on your computer, with no gateway and no provider call, so tests that use them stay offline ([Tests](usage.md#tests)) |
 | `stream_chunk_builder`, `validate_environment`, `model_list`, `cost_calculator.completion_cost` | Same |
 | `token_counter` | Same arguments. OpenAI and Anthropic are counted by the gateway, exactly; the rest are estimated as LiteLLM does, with tiktoken from `theagentrouter[tokens]` ([Counting tokens](usage.md#counting-tokens)) |
 | `completion_cost`, `cost_per_token`, `get_model_info`, `model_cost`, `supports_*`, `register_model` | Same, from the model list that ships with each release plus the models you register |
@@ -67,7 +68,6 @@ These `completion` arguments work in LiteLLM but do nothing in theagentrouter. C
 | `fallbacks`, `context_window_fallbacks`, `content_policy_fallbacks` | Define a route with fallbacks, or use `Router(fallbacks=...)` |
 | `caching`, `cache` | A gateway caches |
 | `metadata`, `tags`, `callbacks`, `logger_fn` (as arguments on one call) | The gateway's request logs record calls; for callbacks, set the module's lists ([Callbacks](usage.md#callbacks)) |
-| `mock_response` | Use a test server with `api_base` |
 | `custom_llm_provider` | Name the provider in the model, for example `openai/gpt-4o-mini` |
 | `api_version` | Azure OpenAI goes through a gateway |
 
@@ -82,10 +82,23 @@ A value that asks for nothing, such as `num_retries=0`, does not warn.
 | Model list | About 4,000 entries, downloaded from GitHub every time `litellm` is imported | About 230 entries, shipped with each release and never downloaded while running. `register_model` adds more, including LiteLLM's whole list. `get_model_info` raises `NotFoundError` for a model that is not on the list |
 | Install | Many dependencies | `theagentrouter-core`: one dependency, `httpx`. `theagentrouter`: that plus the local gateway (about 80 MB) |
 
+## Response serialization
+
+Chat Completions responses and their nested messages, choices, tool calls and usage objects are dataclasses with attribute and dictionary-style access. They are not Pydantic models. They support `model_dump(mode="python" | "json", exclude_none=True)` on these objects. Other Pydantic serialization options, such as `include`, `exclude`, `by_alias` and `exclude_unset`, are not supported. `exclude_none` removes optional model fields recursively; null values inside payload dictionaries and lists are preserved.
+
+`to_dict()` gives the same fields and keeps the ones whose values are `None`.
+
+Anthropic Messages responses are dictionaries. OpenAI Responses replies are dictionary subclasses. For code that handles all three APIs, convert only the Chat Completions object:
+
+```python
+data = dict(response) if isinstance(response, dict) else response.to_dict()
+```
+
 ## Check your code
 
 1. Change the import, or call `install_as_litellm()` before the library that imports `litellm`.
 2. Check model names with no provider: OpenAI and Anthropic names work as they are; add the provider to the rest (`mistral/…`, `groq/…`), and write `gemini/…` for Gemini.
 3. Remove `api_key=` from calls that use the local gateway, and set the provider's key in the environment instead.
-4. Run your tests with warnings shown (`python -W default`, or pytest's warnings summary). Every ignored argument is named there once.
-5. Search your code for the names under [What is missing](#what-is-missing).
+4. Check code that passes Pydantic options other than `mode` and `exclude_none` to `model_dump` ([Response serialization](#response-serialization)).
+5. Run your tests with warnings shown (`python -W default`, or pytest's warnings summary). Every ignored argument is named there once.
+6. Search your code for the names under [What is missing](#what-is-missing).

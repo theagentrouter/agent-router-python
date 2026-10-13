@@ -29,7 +29,6 @@ IGNORED: dict[str, str] = {
     "tags": "the gateway's request logs record calls",
     "callbacks": "the gateway's request logs record calls",
     "logger_fn": "the gateway's request logs record calls",
-    "mock_response": "not supported; use a test server with api_base",
     "custom_llm_provider": "name the provider in the model, for example openai/gpt-4o-mini",
     "api_version": "Azure OpenAI goes through a gateway",
 }

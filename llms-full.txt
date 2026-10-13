@@ -195,7 +195,7 @@ Installing from source, checking the install, upgrading and removing: [docs/inst
 ## Contents
 
 - **Calls:** [A first call](#a-first-call) · [Models and keys](#models-and-keys) · [Parameters](#parameters) · [Streaming](#streaming) · [Async](#async) · [Tools](#tools) · [The Responses API](#the-responses-api) · [The Messages API](#the-messages-api) · [Embeddings](#embeddings)
-- **What comes back:** [What a call returns](#what-a-call-returns) · [Errors](#errors) · [Cost and model details](#cost-and-model-details) ([adding models](#adding-models)) · [Streams put back together](#streams-put-back-together) · [Callbacks](#callbacks) · [Counting tokens](#counting-tokens)
+- **What comes back:** [What a call returns](#what-a-call-returns) · [Errors](#errors) · [Cost and model details](#cost-and-model-details) ([adding models](#adding-models)) · [Streams put back together](#streams-put-back-together) · [Callbacks](#callbacks) · [Counting tokens](#counting-tokens) · [Tests](#tests)
 - **Gateways:** [Gateways](#gateways) · [A gateway you set](#a-gateway-you-set) · [The local gateway](#the-local-gateway) · [Routes](#routes-fallbacks-retries-and-names-of-your-own) · [Running the same gateway for a team](#running-the-same-gateway-for-a-team) · [Settings](#settings)
 
 ## A first call
@@ -259,6 +259,7 @@ These control the call itself:
 | `timeout` | Seconds before giving up; the default is 600, as in LiteLLM |
 | `extra_headers` | More HTTP headers on the request |
 | `extra_body` | More fields in the request body, for provider-specific options |
+| `mock_response` | Answer on this computer without calling anything, for tests ([Tests](#tests)) |
 
 Any other argument is not sent. A few LiteLLM-only arguments, such as `fallbacks` and `num_retries`, warn the first time they are used; see [Coming from LiteLLM](coming-from-litellm.md#ignored-with-a-warning).
 
@@ -364,6 +365,8 @@ resp.usage.total_tokens
 resp.to_dict()
 ```
 
+`model_dump(mode="json", exclude_none=True)` works too: it leaves out optional fields that are `None`, and keeps null values inside payload dictionaries and lists. [Serialization differences when migrating](coming-from-litellm.md#response-serialization).
+
 `resp._hidden_params` says where the call went and what it cost, as LiteLLM's does:
 
 | Key | Example |
@@ -463,6 +466,19 @@ theagentrouter.token_counter(model="openai/gpt-4o-mini", text="Summarise yesterd
 LiteLLM's arguments. For OpenAI and Anthropic models, with or without the provider in the name, the gateway counts: Agent Router asks the provider (`/responses/input_tokens`, `/messages/count_tokens`), so the number is what the provider will charge for. Every other provider, a name the SDK cannot place with a provider, and a count the gateway cannot give are estimated on this computer the way LiteLLM does: its rules for messages and tools, with tiktoken. Install it with `pip install theagentrouter[tokens]`; without it the estimate is about four characters a token, and the SDK warns once.
 
 The gateway's count is a request each time. Code that counts before every turn can set `AGENTROUTER_TOKEN_COUNT=estimate` to always estimate, with no request, as LiteLLM does. `litellm.disable_token_counter = True` makes it return 0, as in LiteLLM.
+
+## Tests
+
+`mock_response` works as in LiteLLM: the call is answered on your computer, so no gateway starts and no provider is called.
+
+```python
+resp = theagentrouter.completion(model="openai/gpt-4o-mini", messages=messages, mock_response="Offline reply")
+resp.choices[0].message.content          # "Offline reply"; usage is 10 prompt and 20 completion tokens
+
+theagentrouter.completion(model="openai/gpt-4o-mini", messages=messages, mock_response="litellm.RateLimitError")  # raises RateLimitError
+```
+
+It also takes an exception to raise, a dict or `ModelResponse` as the whole response, `stream=True` (the text comes three characters at a time, with usage on the last chunk) and `acompletion`. `mock_tool_calls` adds tool calls, `mock_timeout=True` with a `timeout` raises `Timeout`, and `mock_delay` waits first. Callbacks run as for any call. To test the request the SDK sends, use a test server with `api_base` instead.
 
 ## Gateways
 
@@ -641,6 +657,7 @@ A full example: [`examples/11_from_litellm.py`](../examples/11_from_litellm.py).
 | `responses`, `aresponses` | Same arguments, for OpenAI models, through the gateway's `/v1/responses` ([The Responses API](usage.md#the-responses-api)) |
 | `anthropic.messages.create`, `acreate`, `anthropic_messages` | Same arguments, for Claude, through the gateway's `/anthropic/v1/messages`, in Anthropic's format ([The Messages API](usage.md#the-messages-api)) |
 | `success_callback`, `failure_callback`, `callbacks` | Your functions and logger objects are called after each call ([Callbacks](usage.md#callbacks)) |
+| `mock_response`, `mock_tool_calls`, `mock_timeout`, `mock_delay` | Same: the answer is made on your computer, with no gateway and no provider call, so tests that use them stay offline ([Tests](usage.md#tests)) |
 | `stream_chunk_builder`, `validate_environment`, `model_list`, `cost_calculator.completion_cost` | Same |
 | `token_counter` | Same arguments. OpenAI and Anthropic are counted by the gateway, exactly; the rest are estimated as LiteLLM does, with tiktoken from `theagentrouter[tokens]` ([Counting tokens](usage.md#counting-tokens)) |
 | `completion_cost`, `cost_per_token`, `get_model_info`, `model_cost`, `supports_*`, `register_model` | Same, from the model list that ships with each release plus the models you register |
@@ -670,7 +687,6 @@ These `completion` arguments work in LiteLLM but do nothing in theagentrouter. C
 | `fallbacks`, `context_window_fallbacks`, `content_policy_fallbacks` | Define a route with fallbacks, or use `Router(fallbacks=...)` |
 | `caching`, `cache` | A gateway caches |
 | `metadata`, `tags`, `callbacks`, `logger_fn` (as arguments on one call) | The gateway's request logs record calls; for callbacks, set the module's lists ([Callbacks](usage.md#callbacks)) |
-| `mock_response` | Use a test server with `api_base` |
 | `custom_llm_provider` | Name the provider in the model, for example `openai/gpt-4o-mini` |
 | `api_version` | Azure OpenAI goes through a gateway |
 
@@ -685,13 +701,26 @@ A value that asks for nothing, such as `num_retries=0`, does not warn.
 | Model list | About 4,000 entries, downloaded from GitHub every time `litellm` is imported | About 230 entries, shipped with each release and never downloaded while running. `register_model` adds more, including LiteLLM's whole list. `get_model_info` raises `NotFoundError` for a model that is not on the list |
 | Install | Many dependencies | `theagentrouter-core`: one dependency, `httpx`. `theagentrouter`: that plus the local gateway (about 80 MB) |
 
+## Response serialization
+
+Chat Completions responses and their nested messages, choices, tool calls and usage objects are dataclasses with attribute and dictionary-style access. They are not Pydantic models. They support `model_dump(mode="python" | "json", exclude_none=True)` on these objects. Other Pydantic serialization options, such as `include`, `exclude`, `by_alias` and `exclude_unset`, are not supported. `exclude_none` removes optional model fields recursively; null values inside payload dictionaries and lists are preserved.
+
+`to_dict()` gives the same fields and keeps the ones whose values are `None`.
+
+Anthropic Messages responses are dictionaries. OpenAI Responses replies are dictionary subclasses. For code that handles all three APIs, convert only the Chat Completions object:
+
+```python
+data = dict(response) if isinstance(response, dict) else response.to_dict()
+```
+
 ## Check your code
 
 1. Change the import, or call `install_as_litellm()` before the library that imports `litellm`.
 2. Check model names with no provider: OpenAI and Anthropic names work as they are; add the provider to the rest (`mistral/…`, `groq/…`), and write `gemini/…` for Gemini.
 3. Remove `api_key=` from calls that use the local gateway, and set the provider's key in the environment instead.
-4. Run your tests with warnings shown (`python -W default`, or pytest's warnings summary). Every ignored argument is named there once.
-5. Search your code for the names under [What is missing](#what-is-missing).
+4. Check code that passes Pydantic options other than `mode` and `exclude_none` to `model_dump` ([Response serialization](#response-serialization)).
+5. Run your tests with warnings shown (`python -W default`, or pytest's warnings summary). Every ignored argument is named there once.
+6. Search your code for the names under [What is missing](#what-is-missing).
 
 ---
 
@@ -1193,7 +1222,8 @@ Search for these and report each use to the user instead of guessing a replaceme
 | `responses`, `aresponses` | Work for OpenAI models; other providers raise `BadRequestError` |
 | `anthropic.messages.create`, `acreate`, `anthropic_messages` | Work for Claude; other providers and routes raise `BadRequestError` |
 | `token_counter` | Works; add `theagentrouter[tokens]` for LiteLLM's estimate on providers other than OpenAI and Anthropic |
-| `caching`, `cache`, `metadata`, `tags`, `mock_response`, `custom_llm_provider`, `api_version` | Ignored with a warning |
+| `response.model_dump(...)` | Chat Completions responses are dataclasses; `mode` and `exclude_none` work. Messages and Responses replies are dictionaries. Other Pydantic serializer options are not supported |
+| `caching`, `cache`, `metadata`, `tags`, `custom_llm_provider`, `api_version` | Ignored with a warning |
 | `embedding` with an `anthropic/` model | Anthropic has no embeddings API; LiteLLM fails too |
 | The LiteLLM proxy server | Not part of the SDK; point `AGENTROUTER_BASE_URL` at a gateway instead |
 

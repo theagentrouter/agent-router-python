@@ -82,7 +82,8 @@ Search for these and report each use to the user instead of guessing a replaceme
 | `responses`, `aresponses` | Work for OpenAI models; other providers raise `BadRequestError` |
 | `anthropic.messages.create`, `acreate`, `anthropic_messages` | Work for Claude; other providers and routes raise `BadRequestError` |
 | `token_counter` | Works; add `theagentrouter[tokens]` for LiteLLM's estimate on providers other than OpenAI and Anthropic |
-| `caching`, `cache`, `metadata`, `tags`, `mock_response`, `custom_llm_provider`, `api_version` | Ignored with a warning |
+| `response.model_dump(...)` | Chat Completions responses are dataclasses; `mode` and `exclude_none` work. Messages and Responses replies are dictionaries. Other Pydantic serializer options are not supported |
+| `caching`, `cache`, `metadata`, `tags`, `custom_llm_provider`, `api_version` | Ignored with a warning |
 | `embedding` with an `anthropic/` model | Anthropic has no embeddings API; LiteLLM fails too |
 | The LiteLLM proxy server | Not part of the SDK; point `AGENTROUTER_BASE_URL` at a gateway instead |
 

@@ -3,7 +3,7 @@
 ## Contents
 
 - **Calls:** [A first call](#a-first-call) · [Models and keys](#models-and-keys) · [Parameters](#parameters) · [Streaming](#streaming) · [Async](#async) · [Tools](#tools) · [The Responses API](#the-responses-api) · [The Messages API](#the-messages-api) · [Embeddings](#embeddings)
-- **What comes back:** [What a call returns](#what-a-call-returns) · [Errors](#errors) · [Cost and model details](#cost-and-model-details) ([adding models](#adding-models)) · [Streams put back together](#streams-put-back-together) · [Callbacks](#callbacks) · [Counting tokens](#counting-tokens)
+- **What comes back:** [What a call returns](#what-a-call-returns) · [Errors](#errors) · [Cost and model details](#cost-and-model-details) ([adding models](#adding-models)) · [Streams put back together](#streams-put-back-together) · [Callbacks](#callbacks) · [Counting tokens](#counting-tokens) · [Tests](#tests)
 - **Gateways:** [Gateways](#gateways) · [A gateway you set](#a-gateway-you-set) · [The local gateway](#the-local-gateway) · [Routes](#routes-fallbacks-retries-and-names-of-your-own) · [Running the same gateway for a team](#running-the-same-gateway-for-a-team) · [Settings](#settings)
 
 ## A first call
@@ -67,6 +67,7 @@ These control the call itself:
 | `timeout` | Seconds before giving up; the default is 600, as in LiteLLM |
 | `extra_headers` | More HTTP headers on the request |
 | `extra_body` | More fields in the request body, for provider-specific options |
+| `mock_response` | Answer on this computer without calling anything, for tests ([Tests](#tests)) |
 
 Any other argument is not sent. A few LiteLLM-only arguments, such as `fallbacks` and `num_retries`, warn the first time they are used; see [Coming from LiteLLM](coming-from-litellm.md#ignored-with-a-warning).
 
@@ -172,6 +173,8 @@ resp.usage.total_tokens
 resp.to_dict()
 ```
 
+`model_dump(mode="json", exclude_none=True)` works too: it leaves out optional fields that are `None`, and keeps null values inside payload dictionaries and lists. [Serialization differences when migrating](coming-from-litellm.md#response-serialization).
+
 `resp._hidden_params` says where the call went and what it cost, as LiteLLM's does:
 
 | Key | Example |
@@ -271,6 +274,19 @@ theagentrouter.token_counter(model="openai/gpt-4o-mini", text="Summarise yesterd
 LiteLLM's arguments. For OpenAI and Anthropic models, with or without the provider in the name, the gateway counts: Agent Router asks the provider (`/responses/input_tokens`, `/messages/count_tokens`), so the number is what the provider will charge for. Every other provider, a name the SDK cannot place with a provider, and a count the gateway cannot give are estimated on this computer the way LiteLLM does: its rules for messages and tools, with tiktoken. Install it with `pip install theagentrouter[tokens]`; without it the estimate is about four characters a token, and the SDK warns once.
 
 The gateway's count is a request each time. Code that counts before every turn can set `AGENTROUTER_TOKEN_COUNT=estimate` to always estimate, with no request, as LiteLLM does. `litellm.disable_token_counter = True` makes it return 0, as in LiteLLM.
+
+## Tests
+
+`mock_response` works as in LiteLLM: the call is answered on your computer, so no gateway starts and no provider is called.
+
+```python
+resp = theagentrouter.completion(model="openai/gpt-4o-mini", messages=messages, mock_response="Offline reply")
+resp.choices[0].message.content          # "Offline reply"; usage is 10 prompt and 20 completion tokens
+
+theagentrouter.completion(model="openai/gpt-4o-mini", messages=messages, mock_response="litellm.RateLimitError")  # raises RateLimitError
+```
+
+It also takes an exception to raise, a dict or `ModelResponse` as the whole response, `stream=True` (the text comes three characters at a time, with usage on the last chunk) and `acompletion`. `mock_tool_calls` adds tool calls, `mock_timeout=True` with a `timeout` raises `Timeout`, and `mock_delay` waits first. Callbacks run as for any call. To test the request the SDK sends, use a test server with `api_base` instead.
 
 ## Gateways
 
