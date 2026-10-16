@@ -161,7 +161,8 @@ def test_loopback_backends_are_written_as_a_hostname(env, installed, monkeypatch
     )
     monkeypatch.setenv("ACME_KEY", "x")
     config = local_gateway.config_yaml(["acme"], dict(os.environ), port=1975, models=["acme/m"])
-    assert "hostname: localhost" in config and "127.0.0.1" not in config
+    backends = config.replace("127.0.0.1/32", "")  # the policy allowing callers on this computer
+    assert "hostname: localhost" in config and "127.0.0.1" not in backends
 
 
 def test_anthropic_in_a_route_uses_its_openai_compatible_endpoint(env, installed):
@@ -377,6 +378,7 @@ def test_exported_config_serves_a_team_gateway(real_gateway, second_fake, env, m
     )
     aigw_env = dict(
         os.environ,
+        ENVOY_VERSION=local_gateway.ENVOY_VERSION,
         AIGW_CONFIG_HOME=str(server / "config-home"),
         AIGW_STATE_HOME=str(server / "state"),
         AIGW_RUNTIME_DIR=str(local_gateway._runtime_dir()),

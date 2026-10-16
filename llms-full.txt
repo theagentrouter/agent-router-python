@@ -248,7 +248,7 @@ For OpenAI Chat Completions, these go to the provider as they are:
 
 `temperature`, `top_p`, `n`, `stop`, `max_tokens`, `max_completion_tokens`, `presence_penalty`, `frequency_penalty`, `logit_bias`, `logprobs`, `top_logprobs`, `seed`, `response_format`, `tool_choice`, `parallel_tool_calls`, `reasoning_effort`, `user`, `modalities`, `prediction`, `audio`, `service_tier`.
 
-For Claude, which goes to the gateway in Anthropic's Messages format (so prompt caching and thinking keep working), the SDK translates `temperature`, `top_p`, `top_k`, `stop`, `max_tokens`, `max_completion_tokens`, `tool_choice`, `parallel_tool_calls` and `user`. `parallel_tool_calls=False` allows at most one tool call. OpenAI-only options such as `response_format`, `reasoning_effort` and `seed` raise `UnsupportedParamsError` on this path. Use `extra_body` for native Anthropic options, such as `extra_body={"thinking": {"type": "enabled", "budget_tokens": 1024}}`, or a configured OpenAI-compatible gateway. Prompt caching takes LiteLLM's `cache_control` markers: on a content part, on a whole message, or on a tool; cache reads show in `usage.prompt_tokens_details.cached_tokens`. With thinking on, the reply carries `reasoning_content` and `thinking_blocks` (streamed: `delta.reasoning_content`); send the assistant message back as it is with the tool result, since Anthropic needs its signed thinking blocks. Model capability lookups describe the bundled model catalog; they do not promise that this SDK translates every native option.
+For Claude, which goes to the gateway in Anthropic's Messages format (so prompt caching and thinking keep working), the SDK translates `temperature`, `top_p`, `top_k`, `stop`, `max_tokens`, `max_completion_tokens`, `tool_choice`, `parallel_tool_calls` and `user`, and passes `thinking` (`thinking={"type": "enabled", "budget_tokens": 1024}`). `parallel_tool_calls=False` allows at most one tool call. `n=1` is fine. OpenAI-only options such as `response_format`, `reasoning_effort` and `seed` raise `UnsupportedParamsError` on this path, as in LiteLLM; with `drop_params=True` (or `theagentrouter.drop_params = True`) they are dropped instead. Use `extra_body` for other native Anthropic options. Prompt caching takes LiteLLM's `cache_control` markers: on a content part, on a whole message, or on a tool; cache reads show in `usage.prompt_tokens_details.cached_tokens`. With thinking on, the reply carries `reasoning_content` and `thinking_blocks` (streamed: `delta.reasoning_content`); send the assistant message back as it is with the tool result, since Anthropic needs its signed thinking blocks. Model capability lookups describe the bundled model catalog; they do not promise that this SDK translates every native option.
 
 These control the call itself:
 
@@ -270,7 +270,7 @@ for chunk in theagentrouter.completion(model="openai/gpt-4o-mini", messages=mess
     print(chunk.choices[0].delta.content or "", end="")
 ```
 
-The last chunk carries `usage` with the token counts. Provider error events raise an SDK exception, including errors that arrive after partial output.
+Every chunk has a choice, as in LiteLLM. The last chunk, the one with the finish reason, carries `usage` with the token counts; with `stream_options={"include_usage": True}` the usage comes instead on one more chunk with an empty choice, as LiteLLM sends it. Provider error events raise an SDK exception, including errors that arrive after partial output.
 
 ## Async
 
@@ -514,7 +514,7 @@ Set the gateway's address with or without the `/v1` that OpenAI clients add; the
 
 ### The local gateway
 
-It comes with `pip install theagentrouter` on macOS 13 or newer on Apple chips and on Linux with glibc 2.36 or newer (not with `theagentrouter-core`, the SDK alone). There is nothing else to run. The first call starts Agent Router's `aigw` on `127.0.0.1`, on a free port chosen at start, and says so once:
+It comes with `pip install theagentrouter` on macOS 13 or newer on Apple chips and on Linux with glibc 2.36 or newer (not with `theagentrouter-core`, the SDK alone). There is nothing else to run. The first call starts Agent Router's `aigw` on a free port chosen at start, answering only programs on this computer, and says so once:
 
 ```
 theagentrouter: started the local gateway on http://127.0.0.1:52413 (providers from your environment: anthropic, bedrock, openai).
@@ -580,7 +580,7 @@ Path("config.yaml").write_text(local_gateway.export_config(port=1975))
 ```
 
 ```sh
-aigw run config.yaml      # on the server, with the provider keys in its environment
+ENVOY_VERSION=1.39.4 aigw run config.yaml   # on the server, with the provider keys in its environment
 ```
 
 What the file holds:
@@ -609,7 +609,7 @@ Routes program the local gateway only. With `AGENTROUTER_BASE_URL` set:
 | `AGENTROUTER_AUTOSTART` | `0` stops the SDK from starting the local gateway |
 | `AGENTROUTER_TOKEN_COUNT` | `estimate` makes `token_counter` estimate on this computer instead of asking the gateway |
 
-`AGENTROUTER_BASE_URL`, `AGENTROUTER_API_KEY` and `AGENTROUTER_TOKEN_COUNT` can also be kept in `AGENTROUTER_HOME/config.json`, as `base_url`, `api_key` and `token_count`. Environment variables win over the file.
+`AGENTROUTER_BASE_URL`, `AGENTROUTER_API_KEY` and `AGENTROUTER_TOKEN_COUNT` can also be kept in `AGENTROUTER_HOME/config.json`, as `base_url`, `api_key` and `token_count`. Environment variables win over the file. When `AGENTROUTER_BASE_URL` names a different gateway from the file, the file's key is not used, so it never goes to a gateway it was not made for.
 
 To check that the keys a model needs are set, use LiteLLM's `validate_environment(model)`. For the local gateway it checks what the gateway needs for that provider (for Bedrock: a profile, or a key and secret, and a region); with a gateway set, it checks `AGENTROUTER_API_KEY`.
 
@@ -662,7 +662,8 @@ A full example: [`examples/11_from_litellm.py`](../examples/11_from_litellm.py).
 | `token_counter` | Same arguments. OpenAI and Anthropic are counted by the gateway, exactly; the rest are estimated as LiteLLM does, with tiktoken from `theagentrouter[tokens]` ([Counting tokens](usage.md#counting-tokens)) |
 | `completion_cost`, `cost_per_token`, `get_model_info`, `model_cost`, `supports_*`, `register_model` | Same, from the model list that ships with each release plus the models you register |
 | `get_llm_provider`, `get_supported_openai_params`, `provider_list` | Same names; parameter discovery excludes options the SDK cannot translate for Anthropic calls |
-| `drop_params`, `set_verbose`, `suppress_debug_info` | Accepted. Unknown parameters are always dropped |
+| `drop_params` | Same, on the call or on the module, off by default: with it, Claude drops the parameters it does not take (`seed`, `presence_penalty` and others) instead of raising. `n=1` is always fine |
+| `set_verbose`, `suppress_debug_info` | Accepted |
 | Response types under `litellm.types.utils` (`ModelResponse`, `Choices`, `Message`, `Usage` and others) | Same names |
 | `Router` | For `model_list`, `fallbacks` and `num_retries`: the groups become routes in the local gateway, which does the retries and fallbacks. Deployments with one `model_name` share its traffic; keys come from the environment. Other `Router` options warn and are ignored. See [Routes](usage.md#routes-fallbacks-retries-and-names-of-your-own) |
 
@@ -986,7 +987,7 @@ State lives in `AGENTROUTER_HOME/local-gateway/`: `config.yaml`, `state.json` (p
 
 ## Config
 
-The SDK writes the resources `aigw run` reads: a `GatewayClass` and `Gateway` on `127.0.0.1` at a free port chosen at each start (kept in `state.json`; `--admin-port` is chosen the same way), a buffer-limit `ClientTrafficPolicy`, one `AIGatewayRoute`, and per provider a `Backend`, a `BackendTLSPolicy` for HTTPS, an `AIServiceBackend`, a `BackendSecurityPolicy` and, for API keys, a `Secret`.
+The SDK writes the resources `aigw run` reads: a `GatewayClass` and `Gateway` at a free port chosen at each start (kept in `state.json`; `--admin-port` is chosen the same way), a buffer-limit `ClientTrafficPolicy`, a `SecurityPolicy` that answers only callers on this computer (`127.0.0.1` and `::1`; others get 403), one `AIGatewayRoute`, and per provider a `Backend`, a `BackendTLSPolicy` for HTTPS, an `AIServiceBackend`, a `BackendSecurityPolicy` and, for API keys, a `Secret`.
 
 **The SDK's `config.yaml` holds key references, not key values.** Each `Secret` holds `${OPENAI_API_KEY}`-style references. `aigw` fills them in from its environment and writes its translated resources and runtime configuration under `aigw-state/`. Those generated files can contain credentials. The end-to-end test checks the SDK input file and the key received by the provider; it does not assert that the upstream process keeps every generated file free of keys.
 
@@ -1046,15 +1047,16 @@ Run the real-provider scripts one at a time and stop the gateway between them: s
 
 ## Open
 
-1. **Fixed internal ports.** `aigw run` binds fixed ports inside itself (extension server 1061, Envoy Gateway xDS 18000, health 8081, admin 19000 and others), so only one Agent Router gateway runs per computer. The SDK chooses its own listener and admin ports at each start and names the program holding 1061 or 18000. Moving the internal ones needs changes in Agent Router and Envoy Gateway.
-2. **Windows and Intel macOS have no program.** Upstream provides macOS arm64 and Linux amd64/arm64 binaries only; those computers get the fallback wheel. The start lock and the route lock are POSIX only.
-3. **Envoy is downloaded on first start** into `~/.local/share/aigw` (about 100 MB, and older versions stay). To ship it in the wheel, test `aigw run` with a pre-filled `AIGW_DATA_HOME` and no network.
-4. **Restart uses the keys of the program that restarts.** A provider whose key only another program had drops out until that program calls it again.
-5. **Every route change restarts the gateway**, because `aigw` reads its config once at start.
-6. **Backends at an IP address cannot fall back** correctly until Agent Router labels each backend on its own (see "Routes").
-7. **Bedrock with real AWS credentials**, including `AWS_PROFILE`, is untested.
-8. **Azure OpenAI and Google Vertex AI** are not set up.
-9. **No command to stop the gateway**, only `local_gateway.stop()`. Not planned for now.
+1. **The listener and `aigw`'s own ports listen on every network address.** Envoy Gateway binds every listener to `0.0.0.0` and has no setting to change it (`envoyproxy/gateway` v1.9 `internal/gatewayapi/listener.go`), so the SDK's `SecurityPolicy` refuses calls from other computers rather than not listening for them. `aigw`'s internal ports (xDS 18000, health 8081, 18002, 19001) also listen on every address, and `aigw run` has no flag for it; that needs a change in Agent Router.
+2. **Fixed internal ports.** `aigw run` binds fixed ports inside itself (extension server 1061, Envoy Gateway xDS 18000, health 8081, admin 19000 and others), so only one Agent Router gateway runs per computer. The SDK chooses its own listener and admin ports at each start and names the program holding 1061 or 18000. Moving the internal ones needs changes in Agent Router and Envoy Gateway.
+3. **Windows and Intel macOS have no program.** Upstream provides macOS arm64 and Linux amd64/arm64 binaries only; those computers get the fallback wheel. The start lock and the route lock are POSIX only.
+4. **Envoy is downloaded on first start** into `~/.local/share/aigw` (about 100 MB, and older versions stay). The SDK sets `ENVOY_VERSION` (`local_gateway.ENVOY_VERSION`, the 1.39 line that Envoy Gateway v1.9 targets) unless it is already set; without it `aigw` takes the newest Envoy, and Envoy 1.40.0 does not start on macOS 14. To ship it in the wheel, test `aigw run` with a pre-filled `AIGW_DATA_HOME` and no network.
+5. **Restart uses the keys of the program that restarts.** A provider whose key only another program had drops out until that program calls it again.
+6. **Every route change restarts the gateway**, because `aigw` reads its config once at start.
+7. **Backends at an IP address cannot fall back** correctly until Agent Router labels each backend on its own (see "Routes").
+8. **Bedrock with real AWS credentials**, including `AWS_PROFILE`, is untested.
+9. **Azure OpenAI and Google Vertex AI** are not set up.
+10. **No command to stop the gateway**, only `local_gateway.stop()`. Not planned for now.
 
 ---
 
@@ -1316,9 +1318,8 @@ for chunk in theagentrouter.completion(
     messages=[{"role": "user", "content": "Count from one to ten."}],
     stream=True,
 ):
-    if chunk.choices and chunk.choices[0].delta.content:
-        print(chunk.choices[0].delta.content, end="", flush=True)
-    if chunk.usage:
+    print(chunk.choices[0].delta.content or "", end="", flush=True)
+    if chunk.usage:  # on the last chunk
         print(f"\n[{chunk.usage.total_tokens} tokens]")
 ```
 

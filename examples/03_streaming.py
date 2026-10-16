@@ -7,7 +7,6 @@ for chunk in theagentrouter.completion(
     messages=[{"role": "user", "content": "Count from one to ten."}],
     stream=True,
 ):
-    if chunk.choices and chunk.choices[0].delta.content:
-        print(chunk.choices[0].delta.content, end="", flush=True)
-    if chunk.usage:
+    print(chunk.choices[0].delta.content or "", end="", flush=True)
+    if chunk.usage:  # on the last chunk
         print(f"\n[{chunk.usage.total_tokens} tokens]")

@@ -56,7 +56,7 @@ For OpenAI Chat Completions, these go to the provider as they are:
 
 `temperature`, `top_p`, `n`, `stop`, `max_tokens`, `max_completion_tokens`, `presence_penalty`, `frequency_penalty`, `logit_bias`, `logprobs`, `top_logprobs`, `seed`, `response_format`, `tool_choice`, `parallel_tool_calls`, `reasoning_effort`, `user`, `modalities`, `prediction`, `audio`, `service_tier`.
 
-For Claude, which goes to the gateway in Anthropic's Messages format (so prompt caching and thinking keep working), the SDK translates `temperature`, `top_p`, `top_k`, `stop`, `max_tokens`, `max_completion_tokens`, `tool_choice`, `parallel_tool_calls` and `user`. `parallel_tool_calls=False` allows at most one tool call. OpenAI-only options such as `response_format`, `reasoning_effort` and `seed` raise `UnsupportedParamsError` on this path. Use `extra_body` for native Anthropic options, such as `extra_body={"thinking": {"type": "enabled", "budget_tokens": 1024}}`, or a configured OpenAI-compatible gateway. Prompt caching takes LiteLLM's `cache_control` markers: on a content part, on a whole message, or on a tool; cache reads show in `usage.prompt_tokens_details.cached_tokens`. With thinking on, the reply carries `reasoning_content` and `thinking_blocks` (streamed: `delta.reasoning_content`); send the assistant message back as it is with the tool result, since Anthropic needs its signed thinking blocks. Model capability lookups describe the bundled model catalog; they do not promise that this SDK translates every native option.
+For Claude, which goes to the gateway in Anthropic's Messages format (so prompt caching and thinking keep working), the SDK translates `temperature`, `top_p`, `top_k`, `stop`, `max_tokens`, `max_completion_tokens`, `tool_choice`, `parallel_tool_calls` and `user`, and passes `thinking` (`thinking={"type": "enabled", "budget_tokens": 1024}`). `parallel_tool_calls=False` allows at most one tool call. `n=1` is fine. OpenAI-only options such as `response_format`, `reasoning_effort` and `seed` raise `UnsupportedParamsError` on this path, as in LiteLLM; with `drop_params=True` (or `theagentrouter.drop_params = True`) they are dropped instead. Use `extra_body` for other native Anthropic options. Prompt caching takes LiteLLM's `cache_control` markers: on a content part, on a whole message, or on a tool; cache reads show in `usage.prompt_tokens_details.cached_tokens`. With thinking on, the reply carries `reasoning_content` and `thinking_blocks` (streamed: `delta.reasoning_content`); send the assistant message back as it is with the tool result, since Anthropic needs its signed thinking blocks. Model capability lookups describe the bundled model catalog; they do not promise that this SDK translates every native option.
 
 These control the call itself:
 
@@ -78,7 +78,7 @@ for chunk in theagentrouter.completion(model="openai/gpt-4o-mini", messages=mess
     print(chunk.choices[0].delta.content or "", end="")
 ```
 
-The last chunk carries `usage` with the token counts. Provider error events raise an SDK exception, including errors that arrive after partial output.
+Every chunk has a choice, as in LiteLLM. The last chunk, the one with the finish reason, carries `usage` with the token counts; with `stream_options={"include_usage": True}` the usage comes instead on one more chunk with an empty choice, as LiteLLM sends it. Provider error events raise an SDK exception, including errors that arrive after partial output.
 
 ## Async
 
@@ -322,7 +322,7 @@ Set the gateway's address with or without the `/v1` that OpenAI clients add; the
 
 ### The local gateway
 
-It comes with `pip install theagentrouter` on macOS 13 or newer on Apple chips and on Linux with glibc 2.36 or newer (not with `theagentrouter-core`, the SDK alone). There is nothing else to run. The first call starts Agent Router's `aigw` on `127.0.0.1`, on a free port chosen at start, and says so once:
+It comes with `pip install theagentrouter` on macOS 13 or newer on Apple chips and on Linux with glibc 2.36 or newer (not with `theagentrouter-core`, the SDK alone). There is nothing else to run. The first call starts Agent Router's `aigw` on a free port chosen at start, answering only programs on this computer, and says so once:
 
 ```
 theagentrouter: started the local gateway on http://127.0.0.1:52413 (providers from your environment: anthropic, bedrock, openai).
@@ -388,7 +388,7 @@ Path("config.yaml").write_text(local_gateway.export_config(port=1975))
 ```
 
 ```sh
-aigw run config.yaml      # on the server, with the provider keys in its environment
+ENVOY_VERSION=1.39.4 aigw run config.yaml   # on the server, with the provider keys in its environment
 ```
 
 What the file holds:
@@ -417,6 +417,6 @@ Routes program the local gateway only. With `AGENTROUTER_BASE_URL` set:
 | `AGENTROUTER_AUTOSTART` | `0` stops the SDK from starting the local gateway |
 | `AGENTROUTER_TOKEN_COUNT` | `estimate` makes `token_counter` estimate on this computer instead of asking the gateway |
 
-`AGENTROUTER_BASE_URL`, `AGENTROUTER_API_KEY` and `AGENTROUTER_TOKEN_COUNT` can also be kept in `AGENTROUTER_HOME/config.json`, as `base_url`, `api_key` and `token_count`. Environment variables win over the file.
+`AGENTROUTER_BASE_URL`, `AGENTROUTER_API_KEY` and `AGENTROUTER_TOKEN_COUNT` can also be kept in `AGENTROUTER_HOME/config.json`, as `base_url`, `api_key` and `token_count`. Environment variables win over the file. When `AGENTROUTER_BASE_URL` names a different gateway from the file, the file's key is not used, so it never goes to a gateway it was not made for.
 
 To check that the keys a model needs are set, use LiteLLM's `validate_environment(model)`. For the local gateway it checks what the gateway needs for that provider (for Bedrock: a profile, or a key and secret, and a region); with a gateway set, it checks `AGENTROUTER_API_KEY`.

@@ -43,8 +43,8 @@ from ..responses import ResponsesAPIResponse
 from ..tokens import token_counter as _token_counter
 from ..types import Choices, Delta, Message, ModelResponse, ModelResponseStream, StreamingChoices, Usage
 
+drop_params = False  # as in LiteLLM: True drops parameters the provider does not take, instead of raising
 # Settings frameworks set on import; accepted, and have no effect here.
-drop_params = True
 suppress_debug_info = True
 telemetry = False
 cache = None

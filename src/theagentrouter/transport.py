@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 import warnings
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
@@ -10,7 +11,7 @@ from typing import Any
 import httpx
 
 from . import anthropic_format, exceptions, models, openai_format, routing
-from .types import ModelResponse, ModelResponseStream
+from .types import ModelResponse, ModelResponseStream, StreamShaper, wants_usage
 
 DEFAULT_TIMEOUT = 600.0  # seconds; LiteLLM's default
 
@@ -43,10 +44,19 @@ def _warn_ignored(params: dict[str, Any]) -> None:
             warnings.warn(f"theagentrouter ignores {name}=; {instead}.", UserWarning, stacklevel=4)
 
 
+def drop_params(params: dict[str, Any]) -> bool:
+    """LiteLLM's drop_params: on the call, else on the module (``litellm.drop_params = True``)."""
+    if params.get("drop_params") is not None:
+        return bool(params["drop_params"])
+    modules = (sys.modules.get("theagentrouter"), sys.modules.get("theagentrouter.compat.litellm"))
+    return any(getattr(m, "drop_params", False) for m in modules)
+
+
 def _prepare(
     model: str, messages: list[Any], tools: list[dict[str, Any]] | None, stream: bool, params: dict[str, Any]
 ) -> tuple[routing.Target, dict[str, Any], dict[str, str]]:
     _warn_ignored(params)
+    params = {**params, "drop_params": drop_params(params)}
     target = routing.resolve(
         model,
         api_base=params.get("api_base") or params.get("base_url"),
@@ -174,7 +184,10 @@ def stream(
     model: str, messages: list[Any], tools: list[dict[str, Any]] | None, params: dict[str, Any]
 ) -> Iterator[ModelResponseStream]:
     target, body, headers = _prepare(model, messages, tools, True, params)
-    yield from _stream_one(target, body, headers, params, model)
+    shaper = StreamShaper(wants_usage(params))
+    for chunk in _stream_one(target, body, headers, params, model):
+        yield from shaper.feed(chunk)
+    yield from shaper.end()
 
 
 def _stream_one(
@@ -234,8 +247,12 @@ async def astream(
     model: str, messages: list[Any], tools: list[dict[str, Any]] | None, params: dict[str, Any]
 ) -> AsyncIterator[ModelResponseStream]:
     target, body, headers = await asyncio.to_thread(_prepare, model, messages, tools, True, params)
+    shaper = StreamShaper(wants_usage(params))
     async for chunk in _astream_one(target, body, headers, params, model):
-        yield chunk
+        for out in shaper.feed(chunk):
+            yield out
+    for out in shaper.end():
+        yield out
 
 
 async def _astream_one(

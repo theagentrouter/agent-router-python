@@ -68,12 +68,17 @@ def settings() -> dict[str, str]:
     """Settings from the environment, falling back to AGENTROUTER_HOME/config.json.
 
     The file lets a setting outlive one shell: a sign-in tool writes it, and every new process
-    reads it. Environment variables always win over the file.
+    reads it. Environment variables always win over the file. The file's key and project belong to
+    the file's gateway: when the environment names another gateway, they are not used, so a stored
+    key is never sent to a gateway it was not made for.
     """
     try:
         stored = json.loads((home() / "config.json").read_text())
     except (OSError, ValueError):
         stored = {}
+    named = os.environ.get("AGENTROUTER_BASE_URL")
+    if named and named.rstrip("/") != str(stored.get("base_url") or "").rstrip("/"):
+        stored = {k: v for k, v in stored.items() if k not in ("api_key", "project")}
     out = {}
     for name, key in (
         ("base_url", "AGENTROUTER_BASE_URL"),

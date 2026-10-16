@@ -176,6 +176,53 @@ def _add_thinking(blocks: list[dict[str, Any]], fragments: list[Any]) -> None:
             blocks[-1]["signature"] = fragment["signature"]
 
 
+class StreamShaper:
+    """Chunks as LiteLLM yields them: every chunk has a choice.
+
+    The SDK always asks the gateway for usage, which arrives as a last chunk with no choices; a loop
+    reading ``chunk.choices[0]`` would fail on it. That chunk is dropped and its usage goes on the
+    chunk that carries the finish reason. When the caller asks for ``stream_options={"include_usage":
+    True}``, the usage comes instead on one more chunk with an empty choice, as LiteLLM sends it.
+    """
+
+    def __init__(self, include_usage: bool = False) -> None:
+        self.include_usage = include_usage
+        self.usage: Usage | None = None
+        self.held: list[ModelResponseStream] = []  # the chunk with the finish reason, until usage arrives
+        self.last: ModelResponseStream | None = None
+
+    def feed(self, chunk: ModelResponseStream) -> list[ModelResponseStream]:
+        self.last = chunk
+        if chunk.usage is not None:
+            self.usage = chunk.usage
+        if not chunk.choices:
+            return []
+        out, self.held = self.held, []
+        if any(c.finish_reason for c in chunk.choices):
+            self.held = [chunk]
+        else:
+            out.append(chunk)
+        return out
+
+    def end(self) -> list[ModelResponseStream]:
+        out, self.held = self.held, []
+        if self.usage is None or self.last is None:
+            return out
+        if self.include_usage:
+            for chunk in out:
+                chunk.usage = None
+        if out and not self.include_usage:
+            out[-1].usage = self.usage
+        else:
+            last = self.last
+            out.append(ModelResponseStream(last.id, last.model, [StreamingChoices(Delta())], self.usage, last.created))
+        return out
+
+
+def wants_usage(params: dict[str, Any]) -> bool:
+    return bool((params.get("stream_options") or {}).get("include_usage"))
+
+
 def stream_chunk_builder(chunks: list[Any], messages: list[Any] | None = None) -> ModelResponse | None:
     """LiteLLM's stream_chunk_builder: the streamed chunks put back together as one ModelResponse.
 

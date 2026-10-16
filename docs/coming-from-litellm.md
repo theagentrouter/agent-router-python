@@ -43,7 +43,8 @@ A full example: [`examples/11_from_litellm.py`](../examples/11_from_litellm.py).
 | `token_counter` | Same arguments. OpenAI and Anthropic are counted by the gateway, exactly; the rest are estimated as LiteLLM does, with tiktoken from `theagentrouter[tokens]` ([Counting tokens](usage.md#counting-tokens)) |
 | `completion_cost`, `cost_per_token`, `get_model_info`, `model_cost`, `supports_*`, `register_model` | Same, from the model list that ships with each release plus the models you register |
 | `get_llm_provider`, `get_supported_openai_params`, `provider_list` | Same names; parameter discovery excludes options the SDK cannot translate for Anthropic calls |
-| `drop_params`, `set_verbose`, `suppress_debug_info` | Accepted. Unknown parameters are always dropped |
+| `drop_params` | Same, on the call or on the module, off by default: with it, Claude drops the parameters it does not take (`seed`, `presence_penalty` and others) instead of raising. `n=1` is always fine |
+| `set_verbose`, `suppress_debug_info` | Accepted |
 | Response types under `litellm.types.utils` (`ModelResponse`, `Choices`, `Message`, `Usage` and others) | Same names |
 | `Router` | For `model_list`, `fallbacks` and `num_retries`: the groups become routes in the local gateway, which does the retries and fallbacks. Deployments with one `model_name` share its traffic; keys come from the environment. Other `Router` options warn and are ignored. See [Routes](usage.md#routes-fallbacks-retries-and-names-of-your-own) |
 

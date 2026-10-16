@@ -9,7 +9,7 @@ As in LiteLLM, a call is mocked when it has ``mock_response``, ``mock_tool_calls
 - ``mock_tool_calls`` adds tool calls, ``n`` gives that many choices, ``prompt_tokens`` sets the prompt count;
 - ``mock_timeout=True`` with a ``timeout`` raises Timeout, and ``mock_delay`` waits that many seconds first.
 
-Usage is 10 prompt and 20 completion tokens, as in LiteLLM. A stream sends the text three characters at a time.
+Usage is 10 prompt and 20 completion tokens, as in LiteLLM. A stream sends the text three characters at a time; usage comes as from a gateway (see types.StreamShaper).
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
 from . import exceptions, models, openai_format, routing
-from .types import Delta, ModelResponse, ModelResponseStream, StreamingChoices, Usage
+from .types import Delta, ModelResponse, ModelResponseStream, StreamingChoices, StreamShaper, Usage, wants_usage
 
 DEFAULT = "This is a mock request"
 PROMPT_TOKENS, COMPLETION_TOKENS = 10, 20
@@ -115,7 +115,7 @@ def _chunks(resp: ModelResponse) -> Iterator[ModelResponseStream]:
                 for c in resp.choices
             ],
         )
-    # The last chunk carries the finish reason and the usage, as from a gateway.
+    # Then the finish reason, and the usage on a chunk with no choices, as from a gateway.
     yield ModelResponseStream(
         id=resp.id,
         model=resp.model,
@@ -124,8 +124,15 @@ def _chunks(resp: ModelResponse) -> Iterator[ModelResponseStream]:
             StreamingChoices(index=c.index, delta=Delta(tool_calls=c.message.tool_calls), finish_reason=c.finish_reason)
             for c in resp.choices
         ],
-        usage=resp.usage,
     )
+    yield ModelResponseStream(id=resp.id, model=resp.model, created=resp.created, choices=[], usage=resp.usage)
+
+
+def _shaped(resp: ModelResponse, params: dict[str, Any]) -> Iterator[ModelResponseStream]:
+    shaper = StreamShaper(wants_usage(params))
+    for chunk in _chunks(resp):
+        yield from shaper.feed(chunk)
+    yield from shaper.end()
 
 
 def complete(model: str, params: dict[str, Any]) -> ModelResponse:
@@ -136,7 +143,7 @@ def complete(model: str, params: dict[str, Any]) -> ModelResponse:
 
 def stream(model: str, params: dict[str, Any]) -> Iterator[ModelResponseStream]:
     resp = complete(model, params)  # errors raise here, before the first chunk, as in LiteLLM
-    return _chunks(resp)
+    return _shaped(resp, params)
 
 
 async def acomplete(model: str, params: dict[str, Any]) -> ModelResponse:
@@ -149,7 +156,7 @@ async def astream(model: str, params: dict[str, Any]) -> AsyncIterator[ModelResp
     resp = await acomplete(model, params)
 
     async def chunks() -> AsyncIterator[ModelResponseStream]:
-        for chunk in _chunks(resp):
+        for chunk in _shaped(resp, params):
             yield chunk
 
     return chunks()

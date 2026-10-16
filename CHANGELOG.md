@@ -2,6 +2,20 @@
 
 All notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Security
+
+- The local gateway answers only callers on this computer. Envoy listens on every network address, so anyone who could reach the port could make calls with the developer's provider keys; calls from another address now get 403. The docs said it listened on `127.0.0.1` only. `aigw`'s own internal ports still listen on every address; that needs a change in Agent Router.
+- A key stored in `AGENTROUTER_HOME/config.json` is no longer sent to a different gateway set with `AGENTROUTER_BASE_URL`. It goes only to the gateway stored with it.
+
+### Fixed
+
+- The local gateway starts on macOS 13 and 14 again. `aigw` downloaded the newest Envoy at each start, and Envoy 1.40.0 needs macOS 15.5. The SDK now asks for Envoy 1.39.4 (`local_gateway.ENVOY_VERSION`); setting `ENVOY_VERSION` overrides it. A server running an exported config should set it too.
+- Streams have a choice in every chunk, as in LiteLLM, so `chunk.choices[0].delta.content` works to the end of the stream. The usage comes on the chunk with the finish reason; with `stream_options={"include_usage": True}` it comes on one more chunk with an empty choice, as LiteLLM sends it.
+- Claude takes `n=1`, and `drop_params=True` (on the call, or `litellm.drop_params = True`) drops the parameters Claude does not take, such as `seed` and `presence_penalty`, instead of raising. `drop_params` is off by default, as in LiteLLM; it was on and did nothing.
+- `thinking=` reaches Claude. It was left out of the request. With no `max_tokens`, the request leaves room for the answer after the thinking budget.
+
 ## [0.1.0a3] - 2026-10-13
 
 ### Added

@@ -41,7 +41,7 @@ State lives in `AGENTROUTER_HOME/local-gateway/`: `config.yaml`, `state.json` (p
 
 ## Config
 
-The SDK writes the resources `aigw run` reads: a `GatewayClass` and `Gateway` on `127.0.0.1` at a free port chosen at each start (kept in `state.json`; `--admin-port` is chosen the same way), a buffer-limit `ClientTrafficPolicy`, one `AIGatewayRoute`, and per provider a `Backend`, a `BackendTLSPolicy` for HTTPS, an `AIServiceBackend`, a `BackendSecurityPolicy` and, for API keys, a `Secret`.
+The SDK writes the resources `aigw run` reads: a `GatewayClass` and `Gateway` at a free port chosen at each start (kept in `state.json`; `--admin-port` is chosen the same way), a buffer-limit `ClientTrafficPolicy`, a `SecurityPolicy` that answers only callers on this computer (`127.0.0.1` and `::1`; others get 403), one `AIGatewayRoute`, and per provider a `Backend`, a `BackendTLSPolicy` for HTTPS, an `AIServiceBackend`, a `BackendSecurityPolicy` and, for API keys, a `Secret`.
 
 **The SDK's `config.yaml` holds key references, not key values.** Each `Secret` holds `${OPENAI_API_KEY}`-style references. `aigw` fills them in from its environment and writes its translated resources and runtime configuration under `aigw-state/`. Those generated files can contain credentials. The end-to-end test checks the SDK input file and the key received by the provider; it does not assert that the upstream process keeps every generated file free of keys.
 
@@ -101,12 +101,13 @@ Run the real-provider scripts one at a time and stop the gateway between them: s
 
 ## Open
 
-1. **Fixed internal ports.** `aigw run` binds fixed ports inside itself (extension server 1061, Envoy Gateway xDS 18000, health 8081, admin 19000 and others), so only one Agent Router gateway runs per computer. The SDK chooses its own listener and admin ports at each start and names the program holding 1061 or 18000. Moving the internal ones needs changes in Agent Router and Envoy Gateway.
-2. **Windows and Intel macOS have no program.** Upstream provides macOS arm64 and Linux amd64/arm64 binaries only; those computers get the fallback wheel. The start lock and the route lock are POSIX only.
-3. **Envoy is downloaded on first start** into `~/.local/share/aigw` (about 100 MB, and older versions stay). To ship it in the wheel, test `aigw run` with a pre-filled `AIGW_DATA_HOME` and no network.
-4. **Restart uses the keys of the program that restarts.** A provider whose key only another program had drops out until that program calls it again.
-5. **Every route change restarts the gateway**, because `aigw` reads its config once at start.
-6. **Backends at an IP address cannot fall back** correctly until Agent Router labels each backend on its own (see "Routes").
-7. **Bedrock with real AWS credentials**, including `AWS_PROFILE`, is untested.
-8. **Azure OpenAI and Google Vertex AI** are not set up.
-9. **No command to stop the gateway**, only `local_gateway.stop()`. Not planned for now.
+1. **The listener and `aigw`'s own ports listen on every network address.** Envoy Gateway binds every listener to `0.0.0.0` and has no setting to change it (`envoyproxy/gateway` v1.9 `internal/gatewayapi/listener.go`), so the SDK's `SecurityPolicy` refuses calls from other computers rather than not listening for them. `aigw`'s internal ports (xDS 18000, health 8081, 18002, 19001) also listen on every address, and `aigw run` has no flag for it; that needs a change in Agent Router.
+2. **Fixed internal ports.** `aigw run` binds fixed ports inside itself (extension server 1061, Envoy Gateway xDS 18000, health 8081, admin 19000 and others), so only one Agent Router gateway runs per computer. The SDK chooses its own listener and admin ports at each start and names the program holding 1061 or 18000. Moving the internal ones needs changes in Agent Router and Envoy Gateway.
+3. **Windows and Intel macOS have no program.** Upstream provides macOS arm64 and Linux amd64/arm64 binaries only; those computers get the fallback wheel. The start lock and the route lock are POSIX only.
+4. **Envoy is downloaded on first start** into `~/.local/share/aigw` (about 100 MB, and older versions stay). The SDK sets `ENVOY_VERSION` (`local_gateway.ENVOY_VERSION`, the 1.39 line that Envoy Gateway v1.9 targets) unless it is already set; without it `aigw` takes the newest Envoy, and Envoy 1.40.0 does not start on macOS 14. To ship it in the wheel, test `aigw run` with a pre-filled `AIGW_DATA_HOME` and no network.
+5. **Restart uses the keys of the program that restarts.** A provider whose key only another program had drops out until that program calls it again.
+6. **Every route change restarts the gateway**, because `aigw` reads its config once at start.
+7. **Backends at an IP address cannot fall back** correctly until Agent Router labels each backend on its own (see "Routes").
+8. **Bedrock with real AWS credentials**, including `AWS_PROFILE`, is untested.
+9. **Azure OpenAI and Google Vertex AI** are not set up.
+10. **No command to stop the gateway**, only `local_gateway.stop()`. Not planned for now.

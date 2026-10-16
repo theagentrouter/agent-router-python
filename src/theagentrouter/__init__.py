@@ -44,6 +44,7 @@ from .tokens import token_counter
 from .types import ModelResponse, ModelResponseStream, stream_chunk_builder
 
 __version__ = "0.1.0a3"
+drop_params = False  # as litellm.drop_params: True drops parameters the provider does not take, instead of raising
 
 
 def completion(

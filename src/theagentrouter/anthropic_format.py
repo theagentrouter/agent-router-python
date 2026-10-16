@@ -218,12 +218,17 @@ def convert_tool_choice(choice: Any) -> dict[str, Any] | None:
 def build_body(
     model: str, messages: list[Any], tools: list[dict[str, Any]] | None, stream: bool, params: dict[str, Any]
 ) -> dict[str, Any]:
-    unsupported = [key for key in PASSTHROUGH if key not in SUPPORTED_PARAMS and params.get(key) is not None]
-    if unsupported:
+    # As LiteLLM: n=1 is always fine; the rest raise unless drop_params is set, which drops them.
+    unsupported = [
+        key
+        for key in PASSTHROUGH
+        if key not in SUPPORTED_PARAMS and params.get(key) is not None and not (key == "n" and params[key] == 1)
+    ]
+    if unsupported and not params.get("drop_params"):
         raise exceptions.UnsupportedParamsError(
             "Anthropic Messages does not support these SDK parameters: "
             + ", ".join(unsupported)
-            + ". Use extra_body for native Anthropic options.",
+            + ". Set drop_params=True to drop them, or use extra_body for native Anthropic options.",
             model=model,
             llm_provider="anthropic",
         )
@@ -252,6 +257,12 @@ def build_body(
         body["stop_sequences"] = [stop] if isinstance(stop, str) else list(stop)
     if params.get("user"):
         body["metadata"] = {"user_id": str(params["user"])}
+    thinking = params.get("thinking")
+    if thinking:
+        body["thinking"] = thinking
+        budget = (thinking.get("budget_tokens") or 0) if isinstance(thinking, dict) else 0
+        if not (params.get("max_tokens") or params.get("max_completion_tokens")) and budget >= body["max_tokens"]:
+            body["max_tokens"] = budget + DEFAULT_MAX_TOKENS  # Claude needs room for the answer after thinking
     if params.get("extra_body"):
         body.update(params["extra_body"])
     if stream:

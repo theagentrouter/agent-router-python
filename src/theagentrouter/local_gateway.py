@@ -55,6 +55,10 @@ ADMIN_PORT = 0
 # Fixed inside aigw and Envoy Gateway; another aigw on the computer holds them (see _busy_internal).
 EXTPROC_PORT = 1061
 XDS_PORT = 18000
+# The Envoy that aigw downloads and runs. Without it aigw takes the newest release, which can need a
+# newer OS (Envoy 1.40.0 does not start on macOS 14). Envoy Gateway v1.9, inside aigw, targets 1.39.
+# ENVOY_VERSION in the environment overrides it.
+ENVOY_VERSION = "1.39.4"
 START_ATTEMPTS = 3  # a free port can be taken between choosing it and aigw binding it
 START_TIMEOUT = 180.0  # seconds; the first start may fetch Envoy
 # Gateway API allows at most 16 rules in one route, and aigw adds one rule of its own to each
@@ -200,8 +204,13 @@ def config_yaml(
     port: int = PORT,
     models: list[str] | None = None,
     routes: dict | None = None,
+    local: bool = True,
 ) -> str:
     """The resources ``aigw run`` reads. Key values never appear; ``${VAR}`` is filled in by aigw.
+
+    ``local``: answer only callers on this computer. Envoy Gateway binds every listener to all
+    addresses and has no setting for that, so a policy refuses other callers with 403; without it,
+    anyone on the network could use the developer's provider keys.
 
     One route rule per full model name in ``models`` (default: ``routed_models(providers)``), and one
     route per entry in ``routes`` (name -> routes.Route): its models in priority order, plus a retry policy.
@@ -237,6 +246,28 @@ spec:
   connection:
     bufferLimit: 50Mi""",
     ]
+    if local:
+        docs.append(
+            """apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: this-computer-only
+  namespace: default
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: theagentrouter
+  authorization:
+    defaultAction: Deny
+    rules:
+      - name: loopback
+        action: Allow
+        principal:
+          clientCIDRs:
+            - 127.0.0.1/32
+            - ::1/128"""
+        )
     routes = routes or {}
     backends = [(name, PROVIDERS[name]) for name in providers]
     for r in routes.values():
@@ -434,7 +465,7 @@ def export_config(port: int = 1975, providers: list[str] | None = None, models: 
         raise exceptions.BadRequestError(
             f"the routes or models use providers not in the config: {', '.join(outside)}; add them to providers"
         )
-    return config_yaml(chosen, env, port, routed_models(chosen, extra), current)
+    return config_yaml(chosen, env, port, routed_models(chosen, extra), current, local=False)
 
 
 def _route_docs(r) -> list[str]:
@@ -711,6 +742,7 @@ def _start(providers: list[str], models: list[str], routes: dict | None = None) 
     _busy_internal()
     runtime = _runtime_dir()
     runtime.mkdir(parents=True, exist_ok=True)
+    env.setdefault("ENVOY_VERSION", ENVOY_VERSION)
     env.update(
         AIGW_CONFIG_HOME=str(home / "config-home"),
         AIGW_STATE_HOME=str(home / "aigw-state"),
