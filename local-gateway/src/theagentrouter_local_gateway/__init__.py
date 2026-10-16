@@ -11,7 +11,7 @@ import os
 import stat
 from pathlib import Path
 
-__version__ = "0.1.0a3"
+__version__ = "0.1.0a4"
 
 
 def _path() -> Path:
