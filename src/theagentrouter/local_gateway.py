@@ -207,6 +207,20 @@ def _k8s_name(name: str) -> str:
     return f"theagentrouter-route-{slug}-{hashlib.sha256(name.encode()).hexdigest()[:6]}"
 
 
+READY_PORT = 19003  # Envoy Gateway's readiness listener
+
+
+def _loopback_patch(listener: str) -> str:
+    """A JSON patch that moves one Envoy listener to 127.0.0.1."""
+    return f"""    - type: type.googleapis.com/envoy.config.listener.v3.Listener
+      name: {listener}
+      operation:
+        op: replace
+        path: /address/socket_address/address
+        value: 127.0.0.1
+"""
+
+
 def config_yaml(
     providers: list[str],
     env: dict[str, str],
@@ -276,6 +290,23 @@ spec:
           clientCIDRs:
             - 127.0.0.1/32
             - ::1/128"""
+        )
+        # Envoy Gateway binds Envoy's listeners to every address. With the bundled aigw, which lets a config
+        # patch Envoy, they move to loopback; an aigw that does not ignores this, and the policy above still refuses.
+        docs.append(
+            f"""apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyPatchPolicy
+metadata:
+  name: this-computer-only-listeners
+  namespace: default
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: theagentrouter
+  type: JSONPatch
+  jsonPatches:
+{"".join(_loopback_patch(name) for name in ("default/theagentrouter/http", f"envoy-gateway-proxy-ready-0.0.0.0-{READY_PORT}"))}"""
         )
     routes = routes or {}
     backends = [(name, PROVIDERS[name]) for name in providers]

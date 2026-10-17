@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
+import subprocess
 import threading
 import time
 
@@ -30,6 +32,10 @@ def test_local_gateway_config_answers_only_this_computer():
     policy = next(d for d in config.split("\n---\n") if "kind: SecurityPolicy" in d)
     assert "defaultAction: Deny" in policy
     assert "- 127.0.0.1/32" in policy and "- ::1/128" in policy
+    patch = next(d for d in config.split("\n---\n") if "kind: EnvoyPatchPolicy" in d)
+    assert "name: default/theagentrouter/http" in patch and "envoy-gateway-proxy-ready-0.0.0.0-19003" in patch
+    assert patch.count("value: 127.0.0.1") == 2
+    assert "EnvoyPatchPolicy" not in local_gateway.export_config(providers=["openai"])  # a server serves the network
 
 
 def test_exported_config_authenticates_by_default(env):
@@ -59,9 +65,30 @@ def test_real_gateway_refuses_callers_from_the_network(real_gateway):
     port = local_gateway.running()["port"]
     body = {"model": "acme/acme-large", "messages": HELLO}
     sent = len(real_gateway.requests)
-    assert httpx.post(f"http://{address}:{port}/v1/chat/completions", json=body, timeout=20).status_code == 403
+    try:  # the bundled aigw listens on loopback only; an aigw that cannot still refuses with 403
+        assert httpx.post(f"http://{address}:{port}/v1/chat/completions", json=body, timeout=20).status_code == 403
+    except httpx.ConnectError:
+        pass
     assert len(real_gateway.requests) == sent  # the provider never saw it, so no key was used
     assert httpx.post(f"http://127.0.0.1:{port}/v1/chat/completions", json=body, timeout=20).status_code == 200
+
+
+@needs_aigw
+@needs_xds_port
+def test_real_gateway_listens_on_loopback_only(real_gateway):
+    # The gateway's own sockets: another program may hold the same port on every address.
+    if not shutil.which("lsof") or not shutil.which("pgrep"):
+        pytest.skip("needs lsof and pgrep")
+    theagentrouter.completion(model="acme/acme-large", messages=HELLO)
+    state = local_gateway.running()
+    if not state.get("reload"):
+        pytest.skip("this aigw is not the bundled build")
+    group = subprocess.run(["pgrep", "-g", str(os.getpgid(state["pid"]))], capture_output=True, text=True)
+    pids = ",".join(group.stdout.split())
+    listing = subprocess.run(["lsof", "-nP", "-a", "-p", pids, "-iTCP", "-sTCP:LISTEN"], capture_output=True, text=True)
+    addresses = [line.split()[8] for line in listing.stdout.splitlines()[1:]]
+    assert addresses, listing.stderr
+    assert all(a.startswith(("127.0.0.1:", "[::1]:")) for a in addresses), addresses
 
 
 def test_the_gateway_runs_the_pinned_envoy(env, monkeypatch):

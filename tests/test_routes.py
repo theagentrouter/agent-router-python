@@ -162,8 +162,8 @@ def test_loopback_backends_are_written_as_a_hostname(env, installed, monkeypatch
     )
     monkeypatch.setenv("ACME_KEY", "x")
     config = local_gateway.config_yaml(["acme"], dict(os.environ), port=1975, models=["acme/m"])
-    backends = config.replace("127.0.0.1/32", "")  # the policy allowing callers on this computer
-    assert "hostname: localhost" in config and "127.0.0.1" not in backends
+    backends = "\n---\n".join(d for d in config.split("\n---\n") if "kind: Backend\n" in d)
+    assert "hostname: localhost" in backends and "127.0.0.1" not in backends
 
 
 def test_anthropic_in_a_route_uses_its_openai_compatible_endpoint(env, installed):
