@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "theagentrouter-core"
-version = "0.1.0a5"
+version = "0.1.0a6"
 description = "LiteLLM's API with Agent Router underneath: the SDK alone, for use with a remote gateway. pip install theagentrouter adds the local gateway."
 dynamic = ["readme"]
 requires-python = ">=3.10"
@@ -30,7 +30,7 @@ classifiers = [
 dependencies = ["httpx>=0.27,<1"]   # httpx 1.0 removes httpx.Timeout and httpx.HTTPError
 
 [project.optional-dependencies]
-local-gateway = ["theagentrouter-local-gateway==0.1.0a5"]
+local-gateway = ["theagentrouter-local-gateway==0.1.0a6"]
 tokens = ["tiktoken>=0.7"]  # token_counter estimates with LiteLLM's tokenizer
 test = ["pytest>=8", "pytest-asyncio>=0.23"]
 dev = ["theagentrouter-core[test]", "ruff>=0.6", "build>=1.2"]
