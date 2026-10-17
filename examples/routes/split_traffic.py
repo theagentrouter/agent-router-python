@@ -2,7 +2,7 @@
 
 Needs OPENAI_API_KEY and ANTHROPIC_API_KEY.
 
-    OPENAI_API_KEY=... ANTHROPIC_API_KEY=... python examples/10_share_traffic.py
+    OPENAI_API_KEY=... ANTHROPIC_API_KEY=... python examples/routes/split_traffic.py
 """
 
 from collections import Counter

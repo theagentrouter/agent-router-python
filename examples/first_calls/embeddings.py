@@ -1,6 +1,6 @@
 """Embeddings with LiteLLM's arguments: one vector per text, and what the call cost. Needs OPENAI_API_KEY.
 
-OPENAI_API_KEY=... python examples/19_embeddings.py
+OPENAI_API_KEY=... python examples/first_calls/embeddings.py
 """
 
 import math

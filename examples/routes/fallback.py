@@ -5,7 +5,7 @@ answers 404 and the gateway moves on to Anthropic. `on=` lists the status codes 
 failure; 404 is added here only because the model is made up. `attempts=0` means no retries, so
 the gateway goes straight to the fallback.
 
-    OPENAI_API_KEY=... ANTHROPIC_API_KEY=... python examples/07_fallback.py
+    OPENAI_API_KEY=... ANTHROPIC_API_KEY=... python examples/routes/fallback.py
 """
 
 import theagentrouter as ar

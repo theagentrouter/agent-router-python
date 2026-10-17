@@ -3,7 +3,7 @@
 Everything below the import is written for LiteLLM: a tool call, the answer, LiteLLM's error
 names and completion_cost. Needs OPENAI_API_KEY (or change MODEL and the key).
 
-    OPENAI_API_KEY=... python examples/11_from_litellm.py
+    OPENAI_API_KEY=... python examples/from_litellm/change_the_import.py
 """
 
 import json

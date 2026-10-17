@@ -2,7 +2,7 @@
 
 The Router's groups become routes in the local gateway, which does the retries and the fallback.
 
-    OPENAI_API_KEY=... ANTHROPIC_API_KEY=... python examples/12_litellm_router.py
+    OPENAI_API_KEY=... ANTHROPIC_API_KEY=... python examples/from_litellm/litellm_router.py
 """
 
 from theagentrouter.compat import litellm  # was: import litellm

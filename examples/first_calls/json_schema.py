@@ -1,6 +1,6 @@
 """A reply that follows a JSON schema, with response_format. Needs OPENAI_API_KEY.
 
-OPENAI_API_KEY=... python examples/06_structured_output.py
+OPENAI_API_KEY=... python examples/first_calls/json_schema.py
 """
 
 import json

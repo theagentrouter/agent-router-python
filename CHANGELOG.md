@@ -8,6 +8,10 @@ All notable changes to this project are listed here. The format follows [Keep a 
 
 - A relative or `~` `AGENTROUTER_HOME` works: the local gateway resolved it a second time inside that folder and did not start.
 
+### Changed
+
+- The examples are grouped by what they show: `from_litellm/`, `first_calls/`, `routes/`, `gateways/`, `agent_frameworks/` and `provider_apis/`, with task names instead of numbers. `examples/README.md` lists them.
+
 ## [0.1.0a5] - 2026-10-17
 
 ### Fixed

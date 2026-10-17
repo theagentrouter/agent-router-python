@@ -1,6 +1,6 @@
 """OpenAI's Responses API with LiteLLM's `responses`: a reply, a follow-up that continues it, and what it cost. Needs OPENAI_API_KEY.
 
-OPENAI_API_KEY=... python examples/21_responses.py
+OPENAI_API_KEY=... python examples/provider_apis/openai_responses.py
 """
 
 import theagentrouter as ar

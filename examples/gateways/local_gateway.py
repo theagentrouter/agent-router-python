@@ -5,7 +5,7 @@ gateway (the very first start also downloads Envoy, which can take a minute). Th
 the provider keys from the environment when it starts, and keeps running after this program ends,
 so the next program on the computer uses the same one. Needs OPENAI_API_KEY.
 
-    OPENAI_API_KEY=... python examples/18_local_gateway.py
+    OPENAI_API_KEY=... python examples/gateways/local_gateway.py
 
 To stop the gateway:
 

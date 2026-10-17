@@ -1,7 +1,7 @@
 """An OpenAI Agents SDK agent on theagentrouter, with no LiteLLM installed.
 
 pip install theagentrouter openai-agents
-ANTHROPIC_API_KEY=... python examples/17_openai_agents.py
+ANTHROPIC_API_KEY=... python examples/agent_frameworks/openai_agents.py
 """
 
 from theagentrouter.compat import install_as_litellm

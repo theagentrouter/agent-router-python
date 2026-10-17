@@ -1,6 +1,6 @@
 """Errors keep LiteLLM's names, so the same except clauses work. Needs OPENAI_API_KEY.
 
-OPENAI_API_KEY=... python examples/13_handling_errors.py
+OPENAI_API_KEY=... python examples/from_litellm/litellm_errors.py
 """
 
 import theagentrouter

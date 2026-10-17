@@ -21,7 +21,7 @@ install_as_litellm()
 
 LiteLLM does not need to be installed. See [Agent frameworks](frameworks.md).
 
-A full example: [`examples/11_from_litellm.py`](../examples/11_from_litellm.py). With `Router`: [`examples/12_litellm_router.py`](../examples/12_litellm_router.py).
+A full example: [`examples/from_litellm/change_the_import.py`](../examples/from_litellm/change_the_import.py). With `Router`: [`examples/from_litellm/litellm_router.py`](../examples/from_litellm/litellm_router.py).
 
 ## What works the same
 

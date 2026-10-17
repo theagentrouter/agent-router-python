@@ -1,6 +1,6 @@
 """Several calls at once with acompletion. Needs OPENAI_API_KEY.
 
-OPENAI_API_KEY=... python examples/05_async.py
+OPENAI_API_KEY=... python examples/first_calls/many_at_once.py
 """
 
 import asyncio

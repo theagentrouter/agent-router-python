@@ -4,7 +4,7 @@ Routes are saved on this computer (~/.agentrouter/routes.json) and every program
 so ar.list_routes() also shows routes that other programs or examples defined.
 Needs OPENAI_API_KEY and ANTHROPIC_API_KEY.
 
-    OPENAI_API_KEY=... ANTHROPIC_API_KEY=... python examples/09_model_alias.py
+    OPENAI_API_KEY=... ANTHROPIC_API_KEY=... python examples/routes/your_own_names.py
 """
 
 import theagentrouter as ar

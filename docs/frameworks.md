@@ -56,7 +56,7 @@ agent = Agent(
 
 ADK's own extra, `google-adk[extensions]`, installs LiteLLM. Plain `google-adk` with theagentrouter does not need it.
 
-Runnable example: [`examples/16_adk_agent.py`](../examples/16_adk_agent.py).
+Runnable example: [`examples/agent_frameworks/google_adk.py`](../examples/agent_frameworks/google_adk.py).
 
 ## OpenAI Agents SDK
 
@@ -92,7 +92,7 @@ The Agents SDK's own extra, `openai-agents[litellm]`, installs LiteLLM. Plain `o
 
 The Agents SDK sends traces to OpenAI by default. Turn that off with `set_tracing_disabled(True)` from `agents` if you do not want it.
 
-Runnable example: [`examples/17_openai_agents.py`](../examples/17_openai_agents.py).
+Runnable example: [`examples/agent_frameworks/openai_agents.py`](../examples/agent_frameworks/openai_agents.py).
 
 ## Through a gateway
 

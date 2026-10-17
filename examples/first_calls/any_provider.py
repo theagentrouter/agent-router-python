@@ -4,7 +4,7 @@ Every call goes through the local gateway, which reads each provider's key from 
 The Bedrock call runs only when AWS_PROFILE or AWS_ACCESS_KEY_ID is set, with AWS_REGION; other
 ways of signing in to AWS (such as SSO without AWS_PROFILE) are not detected here.
 
-    OPENAI_API_KEY=... ANTHROPIC_API_KEY=... python examples/02_multi_provider.py
+    OPENAI_API_KEY=... ANTHROPIC_API_KEY=... python examples/first_calls/any_provider.py
 """
 
 import os

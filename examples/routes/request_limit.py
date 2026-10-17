@@ -5,7 +5,7 @@ tokens, for every program on the computer that uses the route. The running gatew
 count, so if you run this again within a minute, every request is over the limit.
 Needs OPENAI_API_KEY.
 
-    OPENAI_API_KEY=... python examples/20_request_limit.py
+    OPENAI_API_KEY=... python examples/routes/request_limit.py
 """
 
 import theagentrouter as ar

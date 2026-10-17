@@ -1,6 +1,6 @@
 """The smallest program: one call, one answer. Needs OPENAI_API_KEY.
 
-OPENAI_API_KEY=... python examples/00_two_liner.py
+OPENAI_API_KEY=... python examples/first_calls/one_call.py
 """
 
 import theagentrouter

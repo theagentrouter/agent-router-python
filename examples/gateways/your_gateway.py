@@ -4,7 +4,7 @@ Needs AGENTROUTER_BASE_URL (the gateway's address, which takes the OpenAI format
 AGENTROUTER_API_KEY (the gateway's key, not a provider's). No provider key is needed on this
 computer: the gateway holds them.
 
-    AGENTROUTER_BASE_URL=https://gateway.acme.example/v1 AGENTROUTER_API_KEY=... python examples/15_through_a_gateway.py
+    AGENTROUTER_BASE_URL=https://gateway.acme.example/v1 AGENTROUTER_API_KEY=... python examples/gateways/your_gateway.py
 """
 
 import os

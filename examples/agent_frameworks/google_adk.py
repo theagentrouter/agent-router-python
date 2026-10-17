@@ -1,7 +1,7 @@
 """A Google ADK agent on theagentrouter, with no LiteLLM installed.
 
 pip install theagentrouter google-adk
-ANTHROPIC_API_KEY=... python examples/16_adk_agent.py
+ANTHROPIC_API_KEY=... python examples/agent_frameworks/google_adk.py
 """
 
 import asyncio

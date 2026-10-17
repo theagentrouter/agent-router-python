@@ -62,14 +62,14 @@ The first call starts a local gateway on your computer, and the gateway calls th
 
 | You want to | Example |
 |---|---|
-| Make one call | [`00_two_liner.py`](examples/00_two_liner.py) |
-| Move a LiteLLM script over | [`11_from_litellm.py`](examples/11_from_litellm.py) |
-| Fall back to another model when one fails | [`07_fallback.py`](examples/07_fallback.py) |
-| Retry on rate limits and server errors | [`08_retry.py`](examples/08_retry.py) |
-| Stream, use tools, get JSON back | [`03_streaming.py`](examples/03_streaming.py), [`04_tool_use.py`](examples/04_tool_use.py), [`06_structured_output.py`](examples/06_structured_output.py) |
-| Use OpenAI's Responses API or Anthropic's Messages API | [`21_responses.py`](examples/21_responses.py), [`22_messages.py`](examples/22_messages.py) |
-| Run a Google ADK or OpenAI Agents SDK agent | [`16_adk_agent.py`](examples/16_adk_agent.py), [`17_openai_agents.py`](examples/17_openai_agents.py) |
-| Send calls to your company's gateway | [`15_through_a_gateway.py`](examples/15_through_a_gateway.py) |
+| Make one call | [`first_calls/one_call.py`](examples/first_calls/one_call.py) |
+| Move a LiteLLM script over | [`from_litellm/change_the_import.py`](examples/from_litellm/change_the_import.py) |
+| Fall back to another model when one fails | [`routes/fallback.py`](examples/routes/fallback.py) |
+| Retry on rate limits and server errors | [`routes/retry.py`](examples/routes/retry.py) |
+| Stream, use tools, get JSON back | [`first_calls/stream.py`](examples/first_calls/stream.py), [`first_calls/tools.py`](examples/first_calls/tools.py), [`first_calls/json_schema.py`](examples/first_calls/json_schema.py) |
+| Use OpenAI's Responses API or Anthropic's Messages API | [`provider_apis/openai_responses.py`](examples/provider_apis/openai_responses.py), [`provider_apis/anthropic_messages.py`](examples/provider_apis/anthropic_messages.py) |
+| Run a Google ADK or OpenAI Agents SDK agent | [`agent_frameworks/google_adk.py`](examples/agent_frameworks/google_adk.py), [`agent_frameworks/openai_agents.py`](examples/agent_frameworks/openai_agents.py) |
+| Send calls to your company's gateway | [`gateways/your_gateway.py`](examples/gateways/your_gateway.py) |
 
 All twenty-three, with the keys each one needs: [examples/](examples/README.md).
 

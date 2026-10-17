@@ -2,7 +2,7 @@
 
 Needs OPENAI_API_KEY.
 
-    OPENAI_API_KEY=... python examples/08_retry.py
+    OPENAI_API_KEY=... python examples/routes/retry.py
 """
 
 import theagentrouter as ar

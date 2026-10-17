@@ -2,7 +2,7 @@
 
 The request and the reply are in Anthropic's own format, as in Anthropic's SDK.
 
-ANTHROPIC_API_KEY=... python examples/22_messages.py
+ANTHROPIC_API_KEY=... python examples/provider_apis/anthropic_messages.py
 """
 
 import theagentrouter as ar
