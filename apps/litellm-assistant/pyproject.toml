@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "litellm-assistant"
+version = "0.1.0"
+description = "A small assistant written against LiteLLM, run on LiteLLM or on Agent Router's SDK"
+requires-python = ">=3.10"
+# The model SDK is not listed here: the app runs on either one, installed beside it.
+# LiteLLM: pip install -e ".[litellm,test]". Agent Router: pip install -e ../.. -e ".[test]".
+dependencies = []
+
+[project.optional-dependencies]
+litellm = ["litellm==1.105.0"]
+test = ["pytest>=8,<9", "pytest-asyncio>=1,<2", "httpx>=0.27"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/assistant"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]

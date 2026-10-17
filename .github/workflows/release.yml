@@ -14,21 +14,34 @@ jobs:
   verify:
     needs: checks
     runs-on: ubuntu-24.04
+    outputs:
+      companion-artifact-id: ${{ steps.verified-companion.outputs.artifact-id }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
       - run: python scripts/check_release.py --tag "$GITHUB_REF_NAME"
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: dist
           path: dist/
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          pattern: dist-local-*
+          name: dist-local-darwin-arm64
           path: companion-dist/
-          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: dist-local-linux-amd64
+          path: companion-dist/
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: dist-local-linux-arm64
+          path: companion-dist/
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: dist-local-any
+          path: companion-dist/
       - name: Verify SDK and all companion wheels are present
         run: |
           python - <<'PY'
@@ -42,6 +55,13 @@ jobs:
               assert len(list(Path("dist").glob(f"{name}-[0-9]*.tar.gz"))) == 1, name
           assert len(files) == 8
           PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        id: verified-companion
+        with:
+          name: verified-local-gateway
+          path: companion-dist/*.whl
+          if-no-files-found: error
+          compression-level: 0
 
   # One job and one GitHub environment per package. PyPI accepts only one pending
   # trusted publisher per owner, repository, workflow and environment, so each
@@ -54,12 +74,12 @@ jobs:
     permissions:
       id-token: write   # PyPI trusted publishing; no token stored anywhere
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          pattern: dist-local-*
+          artifact-ids: ${{ needs.verify.outputs.companion-artifact-id }}
           path: companion-dist/
           merge-multiple: true
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           packages-dir: companion-dist/
           skip-existing: true   # a rerun skips files already on PyPI
@@ -71,12 +91,12 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: dist
           path: dist/
       - run: rm dist/theagentrouter-[0-9]*
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           packages-dir: dist/
           skip-existing: true   # a rerun skips files already on PyPI
@@ -88,12 +108,12 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: dist
           path: dist/
       - run: rm dist/theagentrouter_core-*
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
           packages-dir: dist/
           skip-existing: true   # a rerun skips files already on PyPI

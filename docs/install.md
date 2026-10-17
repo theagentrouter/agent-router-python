@@ -40,9 +40,9 @@ To get the local gateway too, build its package (below), then `pip install ./age
 
 There is nothing else to run: the first call starts it. The very first start also downloads Envoy, the proxy `aigw` runs, into `~/.local/share/aigw` (about 100 MB), so it needs the internet and can take a minute; later starts take a few seconds. An SDK upgrade that moves to a newer `aigw` downloads its Envoy the same way and leaves the old one in that folder. See [Usage: the local gateway](usage.md#the-local-gateway).
 
-The package is about 80 MB to download. Windows, Intel Macs, macOS 12 or older, Alpine Linux and Linux with glibc older than 2.36 have no local gateway. On those, `pip install theagentrouter` still succeeds: pip picks a small version of the package with no program in it, and you get the SDK alone. Set `AGENTROUTER_BASE_URL` to an Agent Router gateway; until you do, calls fail with a message that says so.
+The package is about 80 MB to download and roughly 280 MB installed, plus Envoy's first-start download. Windows, Intel Macs, macOS 12 or older, Alpine Linux and Linux with glibc older than 2.36 have no local gateway. This includes RHEL 9 and Amazon Linux 2023 (glibc 2.34) and Ubuntu 22.04 (2.35). On those, `pip install theagentrouter` still succeeds: pip picks a small version of the package with no program in it, and you get the SDK alone. Set `AGENTROUTER_BASE_URL` to an Agent Router gateway; until you do, calls fail with a message that says so.
 
-For serverless functions and CI jobs, use a remote gateway (below) even where the local one would run: each run would otherwise start its own gateway.
+Use the local gateway for development. For production, serverless functions and CI jobs, install `theagentrouter-core` and use a remote gateway (below). The local process has shared configuration and fixed internal ports; configuration changes can interrupt other programs. Local configuration does not support Azure OpenAI or Vertex AI. See [How the local gateway works](local-gateway.md#open) for the exact limits.
 
 **From source.** Build the local gateway package from this repository with an `aigw` program you have, then install the SDK. `make local-gateway` puts the program in the package and installs it into the repository's own `.venv`; for any other environment, install the folder first:
 
@@ -88,7 +88,7 @@ The first call prints one line when it starts the local gateway, such as `theage
 pip install -U theagentrouter
 ```
 
-Each release carries its own copy of the model list (prices and context windows), so upgrading also updates the list. A running local gateway started by the old version is restarted by the next call after the upgrade; there is nothing to do.
+Each release carries its own copy of the model list (prices and context windows), so upgrading also updates the list. A running gateway continues serving its existing models across SDK versions. Stop it explicitly after other programs finish to load the new binary/configuration: `python -c "from theagentrouter import local_gateway; local_gateway.stop()"`. The next call starts the installed version. A different version cannot implicitly reconfigure the shared process.
 
 ## Remove
 

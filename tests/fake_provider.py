@@ -49,17 +49,51 @@ def _last_text(messages: list[dict[str, Any]]) -> str:
 class FakeProvider:
     def __init__(self) -> None:
         self.requests: list[tuple[str, dict[str, str], dict[str, Any]]] = []
+        self.connections: list[tuple] = []
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
             def log_message(self, *args: Any) -> None:
                 pass
 
             def do_POST(self) -> None:  # noqa: N802
                 body = json.loads(self.rfile.read(int(self.headers.get("content-length", 0))) or b"{}")
                 owner.requests.append((self.path, {k.lower(): v for k, v in self.headers.items()}, body))
+                owner.connections.append(self.client_address)
                 model = body.get("model", "")
                 bare = model.split("/")[-1]
+                if bare in ("malformed-json", "stream-html", "stream-json", "stream-redirect", "malformed-stream"):
+                    raw = b"not JSON" if bare == "malformed-json" else b"<html>proxy page</html>"
+                    status, content_type = 200, "application/json"
+                    if bare == "stream-html":
+                        content_type = "text/html"
+                    elif bare == "stream-redirect":
+                        status = 302
+                    elif bare == "malformed-stream":
+                        raw, content_type = b"data: not JSON\n\n", "text/event-stream"
+                    self.send_response(status)
+                    self.send_header("content-type", content_type)
+                    self.send_header("content-length", str(len(raw)))
+                    self.end_headers()
+                    self.wfile.write(raw)
+                    return
+                if bare == "malformed-shape":
+                    return self._json(200, {"choices": [42]})
+                if bare == "cached-cost":
+                    return self._json(
+                        200,
+                        {
+                            "model": bare,
+                            "choices": [{"message": {"content": "cached"}}],
+                            "usage": {
+                                "prompt_tokens": 1200,
+                                "completion_tokens": 10,
+                                "prompt_tokens_details": {"cached_tokens": 1000, "cache_creation_tokens": 100},
+                            },
+                        },
+                    )
                 if bare in ERRORS:
                     status, message = ERRORS[bare]
                     return self._json(status, {"error": {"message": message, "type": "error"}})
@@ -98,12 +132,17 @@ class FakeProvider:
                 self.send_response(status)
                 self.send_header("content-type", "application/json")
                 self.send_header("content-length", str(len(raw)))
+                if status >= 400:
+                    self.send_header("x-request-id", "acme-request-id")
+                    self.send_header("retry-after", "3")
                 self.end_headers()
                 self.wfile.write(raw)
 
             def _sse(self, events: list[str]) -> None:
                 self.send_response(200)
                 self.send_header("content-type", "text/event-stream")
+                self.send_header("connection", "close")
+                self.close_connection = True
                 self.end_headers()
                 for e in events:
                     self.wfile.write(e.encode())
@@ -183,7 +222,8 @@ class FakeProvider:
                         for word in f"echo: {text}".split(" "):
                             events.append({"choices": [{"index": 0, "delta": {"content": word + " "}}]})
                         events.append({"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})
-                    events.append(
+                    # As OpenAI: usage on one more chunk with no choices, only when the caller asks for it.
+                    usage_events = [
                         {
                             "choices": [],
                             "usage": {
@@ -194,7 +234,9 @@ class FakeProvider:
                                 "completion_tokens_details": {"reasoning_tokens": 3},
                             },
                         }
-                    )
+                    ]
+                    if (body.get("stream_options") or {}).get("include_usage"):
+                        events += usage_events
                     if body["model"].split("/")[-1] == "response-details":
                         events.insert(
                             0,

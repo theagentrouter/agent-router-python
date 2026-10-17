@@ -7,6 +7,10 @@ build/
 .pytest_cache/
 .venv-adk/
 .venv-agents/
+.venv-apps-*/
+apps/*/data/
+apps/*/outputs/
+apps/.agentrouter-live/
 
 # Local provider keys for scripts/smoke_*.py. Never committed.
 .env

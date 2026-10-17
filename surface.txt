@@ -12,6 +12,7 @@ theagentrouter.ModelResponseStream [class]
 theagentrouter.ResponsesAPIResponse [class]
 theagentrouter.Retry [class]
 theagentrouter.Route [class]
+theagentrouter.aclose()
 theagentrouter.acompletion(model, messages, stream, tools, params)
 theagentrouter.aembedding(model, input, params)
 theagentrouter.anthropic.messages.AnthropicMessagesResponse [class]
@@ -19,6 +20,7 @@ theagentrouter.anthropic.messages.acreate(max_tokens, messages, model, metadata,
 theagentrouter.anthropic.messages.create(max_tokens, messages, model, metadata, stop_sequences, stream, system, temperature, thinking, tool_choice, tools, top_k, top_p, container, kwargs)
 theagentrouter.anthropic_messages(max_tokens, messages, model, kwargs)
 theagentrouter.aresponses(input, model, params)
+theagentrouter.close()
 theagentrouter.compat.install_as_litellm()
 theagentrouter.compat.litellm.APIConnectionError [class]
 theagentrouter.compat.litellm.APIError [class]
@@ -60,25 +62,26 @@ theagentrouter.compat.litellm.Usage [class]
 theagentrouter.compat.litellm.acompletion(model, messages, kwargs)
 theagentrouter.compat.litellm.acreate_file(args, kwargs)
 theagentrouter.compat.litellm.add_function_to_prompt [value]
-theagentrouter.compat.litellm.aembedding(model, input, params)
+theagentrouter.compat.litellm.aembedding(model, input, kwargs)
 theagentrouter.compat.litellm.anthropic_messages(max_tokens, messages, model, kwargs)
-theagentrouter.compat.litellm.aresponses(input, model, params)
+theagentrouter.compat.litellm.aresponses(model, input, kwargs)
 theagentrouter.compat.litellm.callbacks [value]
 theagentrouter.compat.litellm.completion(model, messages, kwargs)
-theagentrouter.compat.litellm.completion_cost(completion_response, model, prompt_tokens, completion_tokens, custom_llm_provider)
+theagentrouter.compat.litellm.completion_cost(completion_response, model, prompt_tokens, completion_tokens, custom_llm_provider, prompt, completion)
 theagentrouter.compat.litellm.cost_per_token(model, prompt_tokens, completion_tokens, custom_llm_provider)
 theagentrouter.compat.litellm.disable_token_counter [value]
 theagentrouter.compat.litellm.drop_params [value]
-theagentrouter.compat.litellm.embedding(model, input, params)
+theagentrouter.compat.litellm.embedding(model, input, kwargs)
 theagentrouter.compat.litellm.failure_callback [value]
 theagentrouter.compat.litellm.get_llm_provider(model, custom_llm_provider, api_base, api_key, _)
 theagentrouter.compat.litellm.get_model_info(model, custom_llm_provider)
 theagentrouter.compat.litellm.get_supported_openai_params(model, custom_llm_provider, _)
 theagentrouter.compat.litellm.model_cost [value]
 theagentrouter.compat.litellm.model_list [value]
+theagentrouter.compat.litellm.modify_params [value]
 theagentrouter.compat.litellm.provider_list [value]
 theagentrouter.compat.litellm.register_model(model_cost)
-theagentrouter.compat.litellm.responses(input, model, params)
+theagentrouter.compat.litellm.responses(model, input, kwargs)
 theagentrouter.compat.litellm.set_verbose [value]
 theagentrouter.compat.litellm.stream_chunk_builder(chunks, messages)
 theagentrouter.compat.litellm.success_callback [value]
@@ -92,7 +95,7 @@ theagentrouter.compat.litellm.telemetry [value]
 theagentrouter.compat.litellm.token_counter(args, kwargs)
 theagentrouter.compat.litellm.validate_environment(model, api_key, api_base)
 theagentrouter.completion(model, messages, stream, tools, params)
-theagentrouter.completion_cost(completion_response, model, prompt_tokens, completion_tokens, custom_llm_provider)
+theagentrouter.completion_cost(completion_response, model, prompt_tokens, completion_tokens, custom_llm_provider, prompt, completion)
 theagentrouter.cost_per_token(model, prompt_tokens, completion_tokens, custom_llm_provider)
 theagentrouter.embedding(model, input, params)
 theagentrouter.exceptions.APIConnectionError [class]

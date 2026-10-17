@@ -66,7 +66,6 @@ def test_a_list_in_a_tier_shares_traffic(env, installed):
     [
         ("gpt-4o", exceptions.BadRequestError, "needs a provider prefix"),
         ("vertex/gemini-2.5-pro", exceptions.BadRequestError, "does not set up 'vertex'"),
-        ("bedrock/anthropic.claude-sonnet-4-5", exceptions.AuthenticationError, "AWS_PROFILE or AWS_ACCESS_KEY_ID"),
     ],
 )
 def test_route_checks_each_model_now(env, installed, primary, error, match):
@@ -75,12 +74,14 @@ def test_route_checks_each_model_now(env, installed, primary, error, match):
     assert ar.list_routes() == {}
 
 
-def test_route_needs_the_local_gateway(env, monkeypatch):
+def test_route_can_be_defined_for_export_without_a_local_gateway_or_keys(env, monkeypatch):
     monkeypatch.setattr(local_gateway, "installed", lambda: False)
-    with pytest.raises(
-        exceptions.BadRequestError, match=r"routes need the local gateway.*pip install theagentrouter adds it"
-    ):
-        ar.route("chat", primary="openai/gpt-4o")
+    monkeypatch.delenv("OPENAI_API_KEY")
+    ar.route("chat", primary="openai/gpt-4o")
+    config = local_gateway.export_config(providers=["openai"])
+    assert 'value: "chat"' in config and "${OPENAI_API_KEY}" in config
+    with pytest.raises(exceptions.BadRequestError, match="needs the local gateway"):
+        ar.completion(model="chat", messages=HELLO)
 
 
 def test_route_refuses_when_a_gateway_is_set(env, installed, monkeypatch):
@@ -367,8 +368,13 @@ def test_real_gateway_falls_back_to_the_next_model(real_gateway, second_fake):
 
 @needs_aigw
 @needs_xds_port
-def test_exported_config_serves_a_team_gateway(real_gateway, second_fake, env, monkeypatch):
+@pytest.mark.parametrize("server_key", ["acme-server-secret", None, ""])
+def test_exported_config_serves_a_team_gateway(real_gateway, second_fake, env, monkeypatch, server_key):
     """aigw run on the exported config, as a team runs it on a server, serves the same calls and routes."""
+    if server_key is None:
+        monkeypatch.delenv("AGENTROUTER_API_KEY", raising=False)
+    else:
+        monkeypatch.setenv("AGENTROUTER_API_KEY", server_key)
     ar.route("chat", primary="acme/err-500", fallbacks=["acme2/acme-small"], retry=ar.Retry(attempts=1))
     port = _free_port()
     server = env.parent / "server"
@@ -392,20 +398,54 @@ def test_exported_config_serves_a_team_gateway(real_gateway, second_fake, env, m
             start_new_session=True,
         )
     try:
+        started = time.monotonic()
         deadline = time.monotonic() + 120
         while not (
             "listening on" in (server / "aigw.log").read_text(errors="replace") and local_gateway._listening(port)
         ):
+            log_text = (server / "aigw.log").read_text(errors="replace")
+            if not server_key and "External Processor is ready" in log_text and time.monotonic() - started > 5:
+                break  # Invalid empty credentials can prevent Envoy from opening its listener.
             assert proc.poll() is None and time.monotonic() < deadline, (server / "aigw.log").read_text()[-2000:]
             time.sleep(0.2)
         monkeypatch.setenv("AGENTROUTER_BASE_URL", f"http://127.0.0.1:{port}/v1")
         monkeypatch.setenv("AGENTROUTER_AUTOSTART", "0")
         warnings.simplefilter("ignore", UserWarning)  # "chat" is a route here too; the server has the same one
 
+        import httpx
+
+        request = {"model": "acme/acme-large", "messages": HELLO}
+        before = len(real_gateway.requests)
+        with httpx.Client(trust_env=False) as client:
+            if not server_key:
+                for headers in ({}, {"Authorization": "Bearer wrong"}, {"x-api-key": "wrong"}):
+                    try:
+                        response = client.post(
+                            f"http://127.0.0.1:{port}/v1/chat/completions", json=request, headers=headers
+                        )
+                    except httpx.ConnectError:
+                        assert not local_gateway._listening(port)
+                    else:
+                        assert response.status_code >= 400
+                assert len(real_gateway.requests) == before
+                return
+            missing_key = client.post(f"http://127.0.0.1:{port}/v1/chat/completions", json=request)
+            assert missing_key.status_code == 401, (missing_key.text, (server / "aigw.log").read_text()[-4000:])
+            assert (
+                client.post(
+                    f"http://127.0.0.1:{port}/v1/chat/completions",
+                    json=request,
+                    headers={"Authorization": "Bearer wrong"},
+                ).status_code
+                == 401
+            )
+        assert len(real_gateway.requests) == before
+
         r = ar.completion(model="acme/acme-large", messages=HELLO)
         assert r.choices[0].message.content == "echo: refunds yesterday" and r._hidden_params["route"] == "gateway"
         r = ar.completion(model="claude-sonnet-4-5", messages=HELLO)
         assert r._hidden_params["format"] == "anthropic" and real_gateway.requests[-1][0].endswith("/messages")
+        assert "acme-server-secret" not in json.dumps(real_gateway.requests)
         # The route's fallback, once Envoy has looked up the backends' hostnames: the server's route
         # tries acme/err-500, then answers from acme2. (The SDK does not know a remote gateway's routes,
         # so it cannot say which model answered.)

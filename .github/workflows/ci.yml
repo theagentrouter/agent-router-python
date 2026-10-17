@@ -16,10 +16,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.10", "3.11", "3.12", "3.13"]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: ${{ matrix.python }}
       - run: pip install -e ".[dev]"
@@ -32,8 +32,8 @@ jobs:
     # A real Google ADK agent on this SDK, in an environment without LiteLLM.
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
       - run: pip install -e ".[test]" google-adk
@@ -45,8 +45,8 @@ jobs:
     # A real OpenAI Agents SDK agent on this SDK, in an environment without LiteLLM.
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
       - run: pip install -e ".[test]" openai-agents
@@ -54,18 +54,38 @@ jobs:
       - run: pytest tests/test_openai_agents.py --junitxml=agents-tests.xml
       - run: python scripts/check_test_report.py agents-tests.xml
 
+  apps:
+    # The apps under apps/ on real LiteLLM and on this SDK, offline against the fake provider.
+    # Same tests both ways: on LiteLLM they prove the expected behaviour, on this SDK the drop-in.
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: [litellm, theagentrouter]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - if: matrix.sdk == 'litellm'
+        run: pip install -e "apps/adk-support-agent[litellm,test]" -e "apps/litellm-assistant[litellm,test]"
+      - if: matrix.sdk == 'theagentrouter'
+        run: pip install -e . -e "apps/adk-support-agent[test]" -e "apps/litellm-assistant[test]"
+      - run: cd apps/adk-support-agent && APP_SDK=${{ matrix.sdk }} pytest -q
+      - run: cd apps/litellm-assistant && APP_SDK=${{ matrix.sdk }} pytest -q
+
   build:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
       - run: pip install build twine
       - run: python -m build                                         # theagentrouter-core
       - run: python -m build packages/theagentrouter --outdir dist   # theagentrouter, no code
       - run: python -m twine check --strict dist/*
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: dist
           path: dist/

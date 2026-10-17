@@ -23,6 +23,7 @@ from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
 from . import anthropic, exceptions, mock, models, transport
+from ._http import aclose, close
 from .anthropic_messages import AnthropicMessagesResponse, anthropic_messages
 from .embeddings import EmbeddingResponse, aembedding, embedding
 from .models import (
@@ -69,11 +70,13 @@ async def acompletion(
     if mock.requested(params):
         return await (mock.astream(model, params) if stream else mock.acomplete(model, params))
     if stream:
-        return transport.astream(model, messages, tools, params)
+        return await transport.astream(model, messages, tools, params)
     return await transport.acomplete(model, messages, tools, params)
 
 
 __all__ = [
+    "close",
+    "aclose",
     "EmbeddingResponse",
     "aembedding",
     "embedding",

@@ -43,6 +43,8 @@ SUPPORTED_PARAMS = frozenset(
         "tool_choice",
         "parallel_tool_calls",
         "user",
+        "reasoning_effort",
+        "response_format",
     )
 )
 
@@ -106,13 +108,31 @@ def _user_blocks(content: Any) -> list[dict[str, Any]]:
         if kind == "text":
             blocks.append(_cached({"type": "text", "text": part.get("text", "")}, part))
         elif kind == "image_url":
-            url = (part.get("image_url") or {}).get("url", "")
+            image = part.get("image_url") or ""
+            url = image.get("url", "") if isinstance(image, dict) else image
             if url.startswith("data:") and ";base64," in url:
                 media, data = url[5:].split(";base64,", 1)
                 source = {"type": "base64", "media_type": media, "data": data}
             else:
                 source = {"type": "url", "url": url}
             blocks.append(_cached({"type": "image", "source": source}, part))
+        elif kind in ("document", "image"):
+            blocks.append(_cached(dict(part), part))
+        elif kind == "file":
+            file = part.get("file") or {}
+            data = file.get("file_data") or ""
+            if data.startswith("data:") and ";base64," in data:
+                media, value = data[5:].split(";base64,", 1)
+                source = {"type": "base64", "media_type": media, "data": value}
+            elif data.startswith(("https://", "http://")):
+                source = {"type": "url", "url": data}
+            else:
+                raise exceptions.UnsupportedParamsError(
+                    "Claude file parts require a data URL or an HTTP URL in file_data"
+                )
+            blocks.append(_cached({"type": "document", "source": source}, part))
+        else:
+            raise exceptions.UnsupportedParamsError(f"Claude does not support content part {kind!r}; it was not sent")
     return blocks
 
 
@@ -131,8 +151,10 @@ def _thinking_blocks(message: dict[str, Any]) -> list[dict[str, Any]]:
 def _arguments(raw: str) -> Any:
     try:
         return json.loads(raw) if raw else {}
-    except ValueError:
-        return {}
+    except (ValueError, TypeError) as error:
+        raise exceptions.BadRequestError(
+            "Tool-call arguments must be valid JSON; the tool call was not sent"
+        ) from error
 
 
 def convert_messages(messages: list[Any]) -> tuple[str | list[dict[str, Any]] | None, list[dict[str, Any]]]:
@@ -258,11 +280,24 @@ def build_body(
     if params.get("user"):
         body["metadata"] = {"user_id": str(params["user"])}
     thinking = params.get("thinking")
+    effort = params.get("reasoning_effort")
+    if thinking is None and effort not in (None, "none"):
+        budgets = {"minimal": 1024, "low": 1024, "medium": 2048, "high": 4096, "xhigh": 8192, "max": 16384}
+        if effort not in budgets:
+            raise exceptions.BadRequestError(
+                f"Invalid reasoning_effort: {effort!r}", model=model, llm_provider="anthropic"
+            )
+        thinking = {"type": "enabled", "budget_tokens": budgets[effort]}
     if thinking:
         body["thinking"] = thinking
         budget = (thinking.get("budget_tokens") or 0) if isinstance(thinking, dict) else 0
         if not (params.get("max_tokens") or params.get("max_completion_tokens")) and budget >= body["max_tokens"]:
             body["max_tokens"] = budget + DEFAULT_MAX_TOKENS  # Claude needs room for the answer after thinking
+    response_format = params.get("response_format")
+    if response_format:
+        schema = response_format.get("response_schema") or (response_format.get("json_schema") or {}).get("schema")
+        if schema is not None:
+            body["output_format"] = {"type": "json_schema", "schema": schema}
     if params.get("extra_body"):
         body.update(params["extra_body"])
     if stream:
@@ -280,7 +315,7 @@ def _usage(raw: dict[str, Any] | None) -> Usage:
     completion = raw.get("output_tokens") or 0
     # Cached prompt tokens where LiteLLM puts them; the OpenAI Agents SDK reads them there.
     cached = raw.get("cache_read_input_tokens") or 0
-    details = _TokenDetails(cached_tokens=cached)  # 0 when nothing was read, as in LiteLLM
+    details = _TokenDetails(cached_tokens=cached, cache_creation_tokens=raw.get("cache_creation_input_tokens") or 0)
     return Usage(prompt, completion, prompt + completion, prompt_tokens_details=details)
 
 
@@ -328,6 +363,7 @@ class StreamParser:
         self.usage_in: dict[str, Any] = {}
         self.output_tokens = 0
         self.tool_index_by_block: dict[int, int] = {}
+        self.tool_arguments_seen: set[int] = set()
 
     def _chunk(self, delta: Delta, finish: str | None = None) -> ModelResponseStream:
         return ModelResponseStream(self.rid, self.model, [StreamingChoices(delta=delta, finish_reason=finish)])
@@ -374,11 +410,26 @@ class StreamParser:
                 block = {"type": "thinking", "thinking": "", "signature": d.get("signature", "")}
                 return [self._chunk(Delta(thinking_blocks=[block]))]
             if d.get("type") == "input_json_delta":
+                if d.get("partial_json"):
+                    self.tool_arguments_seen.add(event.get("index", 0))
                 index = self.tool_index_by_block.get(event.get("index", 0), 0)
                 return [
                     self._chunk(
                         Delta(
                             tool_calls=[ToolCall(id="", index=index, function=Function("", d.get("partial_json", "")))]
+                        )
+                    )
+                ]
+            return []
+        if kind == "content_block_stop":
+            block = event.get("index", 0)
+            if block in self.tool_index_by_block and block not in self.tool_arguments_seen:
+                return [
+                    self._chunk(
+                        Delta(
+                            tool_calls=[
+                                ToolCall(id="", index=self.tool_index_by_block[block], function=Function("", "{}"))
+                            ]
                         )
                     )
                 ]

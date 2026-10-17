@@ -275,6 +275,7 @@ def _record(monkeypatch, state):
 
 
 def test_new_provider_restarts_the_gateway(env, monkeypatch):
+    monkeypatch.setitem(theagentrouter.model_cost, "bedrock/anthropic.claude-sonnet-4-5", {})
     state = {
         "pid": 1,
         "port": 1975,
@@ -292,7 +293,7 @@ def test_new_provider_restarts_the_gateway(env, monkeypatch):
     assert "bedrock/anthropic.claude-sonnet-4-5" in models and "openai/gpt-4o-mini" in models
 
 
-def test_new_model_restarts_the_gateway_with_one_more_rule(env, monkeypatch):
+def test_unknown_model_requires_registration_before_restarting(env, monkeypatch):
     state = {
         "pid": 1,
         "port": 1975,
@@ -303,6 +304,10 @@ def test_new_model_restarts_the_gateway_with_one_more_rule(env, monkeypatch):
     calls = _record(monkeypatch, state)
     assert local_gateway.ensure("openai/gpt-4o-mini") is state  # already routed: no restart
     assert calls == []
+    with pytest.raises(exceptions.NotFoundError, match="register_model"):
+        local_gateway.ensure("openai/acme-tuned")
+    assert calls == []
+    monkeypatch.setitem(theagentrouter.model_cost, "openai/acme-tuned", {})
     local_gateway.ensure("openai/acme-tuned")
     assert calls[0] == ("stop", ["openai"]) and "openai/acme-tuned" in calls[1][2]
 
@@ -389,6 +394,7 @@ def test_real_gateway_end_to_end(real_gateway, env, capsys, monkeypatch):
 
     # 5. A new provider's key restarts the gateway with it.
     monkeypatch.setenv("ACME2_KEY", "acme2-secret")
+    monkeypatch.setitem(theagentrouter.model_cost, "acme2/acme-small", {})
     r = theagentrouter.completion(model="acme2/acme-small", messages=HELLO)
     assert r.choices[0].message.content == "echo: refunds yesterday"
     assert fake.requests[-1][1]["authorization"] == "Bearer acme2-secret"
@@ -396,12 +402,14 @@ def test_real_gateway_end_to_end(real_gateway, env, capsys, monkeypatch):
     assert second["pid"] != first["pid"] and second["providers"] == ["acme", "acme2", "anthropic"]
 
     # 6. A model the gateway has no rule for yet gets one: the gateway restarts with it.
+    monkeypatch.setitem(theagentrouter.model_cost, "acme/acme-other", {})
     r = theagentrouter.completion(model="acme/acme-other", messages=HELLO)
     assert r.choices[0].message.content == "echo: refunds yesterday"
     assert fake.requests[-1][2]["model"] == "acme-other"
     assert local_gateway.running()["pid"] != second["pid"]
 
     # 7. Errors from the provider keep LiteLLM's names through the gateway.
+    monkeypatch.setitem(theagentrouter.model_cost, "acme/err-429", {})
     with pytest.raises(exceptions.RateLimitError):
         theagentrouter.completion(model="acme/err-429", messages=HELLO)
 
@@ -506,21 +514,23 @@ def test_xds_port_in_use_is_reported(real_gateway, monkeypatch):
 # --- upgrades -------------------------------------------------------
 
 
-def test_a_gateway_started_by_another_version_is_restarted(env, monkeypatch):
-    # After pip install -U, the old aigw keeps running until something stops it; the next call does.
+@pytest.mark.parametrize("version", ["0.0.1", "99.0.0"])
+def test_a_gateway_started_by_another_version_is_reused(env, monkeypatch, version):
     old = {
         "pid": 1,
         "port": 1975,
         "providers": ["openai"],
         "models": ["openai/gpt-4o-mini"],
-        "versions": {"sdk": "0.0.1", "local_gateway": "0.0.1"},
+        "versions": {"sdk": version, "local_gateway": version},
     }
     calls = []
     monkeypatch.setattr(local_gateway, "running", lambda: old)
     monkeypatch.setattr(local_gateway, "stop", lambda state=None: calls.append("stop"))
     monkeypatch.setattr(local_gateway, "_start", lambda providers, models, routes=None: calls.append("start") or {})
-    assert not local_gateway.serves(old, "openai/gpt-4o-mini", {})
-    local_gateway.ensure("openai/gpt-4o-mini")
-    assert calls == ["stop", "start"]
-    # A gateway from before versions were recorded is restarted once, too.
-    assert not local_gateway.serves({k: v for k, v in old.items() if k != "versions"}, "openai/gpt-4o-mini", {})
+    assert local_gateway.serves(old, "openai/gpt-4o-mini", {})
+    assert local_gateway.ensure("openai/gpt-4o-mini") is old
+    assert calls == []
+    # A different version cannot change the shared configuration implicitly.
+    with pytest.raises(exceptions.BadRequestError, match="another SDK version"):
+        local_gateway.ensure("openai/gpt-4o")
+    assert calls == []

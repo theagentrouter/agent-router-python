@@ -1,4 +1,4 @@
-.PHONY: install test lint format surface llms models smoke build release local-gateway
+.PHONY: install test lint format surface llms models smoke build release local-gateway apps apps-live
 
 install:  # theagentrouter-core (the SDK); add the local gateway with make local-gateway AIGW=...
 	python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
@@ -20,6 +20,12 @@ llms:  # llms.txt and llms-full.txt, from the README, docs, examples and skills
 
 models:
 	.venv/bin/python scripts/sync_models.py
+
+apps:  # the apps under apps/ on real LiteLLM and on this SDK, offline: make apps [SDK=litellm|theagentrouter] [APP=...]
+	scripts/apps.sh
+
+apps-live:  # the apps against real providers on both SDKs; keys from the environment or .env: make apps-live [SDK=...]
+	scripts/apps_live.sh
 
 smoke:  # real providers; keys from the environment or a local .env
 	@set -a; [ -f .env ] && . ./.env; set +a; .venv/bin/python scripts/smoke_real.py

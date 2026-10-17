@@ -10,10 +10,8 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
-import httpx
-
 from . import exceptions, models, routing
-from .transport import _raise_for, _timeout, _warn_ignored, _wrap, served_by
+from .transport import _asend, _send, _warn_ignored, served_by
 from .types import Usage, _DictAccess
 
 # LiteLLM's embedding arguments that are passed to the provider as they are.
@@ -93,15 +91,10 @@ def _parse(target: routing.Target, data: dict[str, Any], url: str) -> EmbeddingR
 
 def embedding(model: str, input: str | list[Any], **params: Any) -> EmbeddingResponse:
     target, body, headers, url = _prepare(model, input, params)
-    try:
-        with httpx.Client(timeout=_timeout(params)) as client:
-            r = client.post(url, json=body, headers=headers)
-    except httpx.HTTPError as e:
-        raise _wrap(e, target, model) from e
-    _raise_for(r, r.text, target, model)
+    r = _send(target, body, headers, params, model, url)
     try:
         return _parse(target, r.json(), url)
-    except ValueError as e:
+    except (ValueError, AttributeError, TypeError, KeyError) as e:
         raise exceptions.APIResponseValidationError(
             f"{target.provider}: reply is not JSON", model=model, llm_provider=target.provider
         ) from e
@@ -110,15 +103,10 @@ def embedding(model: str, input: str | list[Any], **params: Any) -> EmbeddingRes
 async def aembedding(model: str, input: str | list[Any], **params: Any) -> EmbeddingResponse:
     # In a worker thread: preparing can start the local gateway, which must not block the event loop.
     target, body, headers, url = await asyncio.to_thread(_prepare, model, input, params)
-    try:
-        async with httpx.AsyncClient(timeout=_timeout(params)) as client:
-            r = await client.post(url, json=body, headers=headers)
-    except httpx.HTTPError as e:
-        raise _wrap(e, target, model) from e
-    _raise_for(r, r.text, target, model)
+    r = await _asend(target, body, headers, params, model, url)
     try:
         return _parse(target, r.json(), url)
-    except ValueError as e:
+    except (ValueError, AttributeError, TypeError, KeyError) as e:
         raise exceptions.APIResponseValidationError(
             f"{target.provider}: reply is not JSON", model=model, llm_provider=target.provider
         ) from e

@@ -44,6 +44,7 @@ PASSTHROUGH = (
     "prediction",
     "audio",
     "service_tier",
+    "web_search_options",
 )
 
 
@@ -126,6 +127,8 @@ def parse_response(data: dict[str, Any]) -> ModelResponse:
                     tool_calls=_tool_calls(m.get("tool_calls")),
                     reasoning_content=m.get("reasoning_content") or m.get("reasoning"),
                     refusal=m.get("refusal"),
+                    annotations=m.get("annotations"),
+                    audio=m.get("audio"),
                 ),
                 logprobs=c.get("logprobs"),
             )
@@ -136,6 +139,8 @@ def parse_response(data: dict[str, Any]) -> ModelResponse:
         choices=choices,
         usage=_usage(data.get("usage")),
         created=data.get("created") or 0,
+        system_fingerprint=data.get("system_fingerprint"),
+        service_tier=data.get("service_tier"),
     )
 
 
@@ -153,6 +158,8 @@ def parse_chunk(data: dict[str, Any]) -> ModelResponseStream:
                     tool_calls=_tool_calls(d.get("tool_calls")),
                     refusal=d.get("refusal"),
                     reasoning_content=d.get("reasoning_content") or d.get("reasoning"),
+                    annotations=d.get("annotations"),
+                    audio=d.get("audio"),
                 ),
                 logprobs=c.get("logprobs"),
             )
@@ -164,6 +171,8 @@ def parse_chunk(data: dict[str, Any]) -> ModelResponseStream:
         choices=choices,
         usage=usage,
         created=data.get("created") or 0,
+        system_fingerprint=data.get("system_fingerprint"),
+        service_tier=data.get("service_tier"),
     )
 
 

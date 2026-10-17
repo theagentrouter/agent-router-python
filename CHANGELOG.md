@@ -2,6 +2,26 @@
 
 All notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Fixed
+
+- Retry settings are checked before saving a route. Fractional timeouts and long backoffs produce valid gateway durations, so one malformed retry policy cannot prevent every program's local gateway from starting.
+- Stream establishment errors raise at the call or await, malformed responses raise SDK errors, loopback prompts bypass proxy environment variables, and HTTP connections are reused. HTTP exceptions retain response headers; bounded request retries are available without replaying partial completion streams.
+- Cache-aware cost estimates, JSON serialization, response metadata, Claude file/image handling and LiteLLM module defaults/imports are supported. Unsupported arguments and audio content raise or warn instead of silently disappearing.
+- Interrupted gateway starts are stopped and reaped. Startup locking has a timeout, runtime/state permissions are restricted, stopped runs' generated key files are removed, and supplied rotated credentials produce an actionable error.
+- Unknown models cannot restart an existing shared gateway. Existing model rules are reused across SDK versions, and reconfiguration cannot silently drop providers whose credentials the caller lacks. Custom models must be registered before adding them to a running gateway. Route/configuration changes can still interrupt other programs.
+- Routes can be defined for export without local keys or the companion. Provider base-URL variables are used, AWS regions are validated, zero timeouts are preserved, and request representations hide credentials and explicit authentication headers.
+
+### Security
+
+- Exported server configuration requires client-key authentication by default; an open endpoint requires `authentication=False`. This needs the bundled upstream Secret-retention patch and source build described in `local-gateway/patches/README.md`; no patched upstream release has been published.
+- Release workflows use exact companion artifact names, publish the verified bundle by artifact ID, and pin third-party actions to full commit SHAs.
+
+### Added
+
+- Python 3.14 classifier and CI coverage.
+
 ## [0.1.0a4] - 2026-10-16
 
 ### Security

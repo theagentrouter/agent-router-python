@@ -33,6 +33,8 @@ A full example: [`examples/11_from_litellm.py`](../examples/11_from_litellm.py).
 | `tools`, `tool_choice`, `parallel_tool_calls` | OpenAI-shaped inputs, translated for Anthropic too; `parallel_tool_calls=False` disables parallel Anthropic tool calls |
 | `response_format`, `temperature`, `max_tokens` and the other OpenAI parameters | Passed through for OpenAI Chat Completions. Unsupported Anthropic options raise `UnsupportedParamsError` ([the full list](usage.md#parameters)) |
 | `api_base`, `timeout`, `extra_headers`, `extra_body` | Same |
+| `num_retries`, `max_retries` | Bounded request retries before response/stream output; a partially consumed completion stream is never replayed. Default is zero. Route retries remain gateway settings |
+| Module `api_base`, `api_key`, `request_timeout`, `num_retries` | Defaults for completion, embeddings and Responses calls; per-call values win. `modify_params=True` warns because message rewriting is unsupported |
 | `api_key` | Used with `api_base`, or as the key of a gateway you set. With the local gateway it is ignored with a warning: the gateway reads provider keys from the environment ([Models and keys](usage.md#models-and-keys)) |
 | Errors: `RateLimitError`, `ContextWindowExceededError`, `AuthenticationError` and the rest | Same names, under `litellm.` and `theagentrouter.exceptions` |
 | `responses`, `aresponses` | Same arguments, for OpenAI models, through the gateway's `/v1/responses` ([The Responses API](usage.md#the-responses-api)) |
@@ -65,14 +67,13 @@ These `completion` arguments work in LiteLLM but do nothing in theagentrouter. C
 
 | Argument | Instead |
 |---|---|
-| `num_retries`, `max_retries` | Define a route with a `Retry`, or use `Router(num_retries=...)` |
 | `fallbacks`, `context_window_fallbacks`, `content_policy_fallbacks` | Define a route with fallbacks, or use `Router(fallbacks=...)` |
 | `caching`, `cache` | A gateway caches |
 | `metadata`, `tags`, `callbacks`, `logger_fn` (as arguments on one call) | The gateway's request logs record calls; for callbacks, set the module's lists ([Callbacks](usage.md#callbacks)) |
 | `custom_llm_provider` | Name the provider in the model, for example `openai/gpt-4o-mini` |
 | `api_version` | Azure OpenAI goes through a gateway |
 
-A value that asks for nothing, such as `num_retries=0`, does not warn.
+A value that asks for nothing does not warn. Other unknown completion arguments warn instead of disappearing silently.
 
 ## Other differences
 
@@ -85,7 +86,7 @@ A value that asks for nothing, such as `num_retries=0`, does not warn.
 
 ## Response serialization
 
-Chat Completions responses and their nested messages, choices, tool calls and usage objects are dataclasses with attribute and dictionary-style access. They are not Pydantic models. They support `model_dump(mode="python" | "json", exclude_none=True)` on these objects. Other Pydantic serialization options, such as `include`, `exclude`, `by_alias` and `exclude_unset`, are not supported. `exclude_none` removes optional model fields recursively; null values inside payload dictionaries and lists are preserved.
+Chat Completions responses and their nested messages, choices, tool calls and usage objects are dataclasses with attribute and dictionary-style access. They are not Pydantic models. They support `model_dump(mode="python" | "json", exclude_none=True)` and `model_dump_json(exclude_none=True, indent=2)`. Other Pydantic serialization options, such as `include`, `exclude`, `by_alias` and `exclude_unset`, are not supported. `exclude_none` removes optional model fields recursively; null values inside payload dictionaries and lists are preserved.
 
 `to_dict()` gives the same fields and keeps the ones whose values are `None`.
 

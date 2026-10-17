@@ -7,10 +7,13 @@ Keys are "provider/model"; lookups also accept a bare model name with custom_llm
 from __future__ import annotations
 
 import json
+import warnings
 from importlib import resources
 from typing import Any
 
 from . import exceptions
+
+_unknown_prices: set[str] = set()
 
 
 def _load() -> dict[str, dict[str, Any]]:
@@ -197,6 +200,13 @@ def cost_per_token(
 ) -> tuple[float, float]:
     key = _key(model, custom_llm_provider)
     if key is None:
+        if model not in _unknown_prices:
+            _unknown_prices.add(model)
+            warnings.warn(
+                f"No price is known for {model!r}; the reported cost is an unpriced estimate of $0.",
+                UserWarning,
+                stacklevel=2,
+            )
         return 0.0, 0.0
     info = model_cost[key]
     return (
@@ -211,8 +221,11 @@ def completion_cost(
     prompt_tokens: int = 0,
     completion_tokens: int = 0,
     custom_llm_provider: str | None = None,
+    prompt: str | None = None,
+    completion: str | None = None,
 ) -> float:
     """Cost of one call in US dollars, from the table. Zero when the model is not listed."""
+    cache_read = cache_write = 0
     if completion_response is not None:
         hidden = getattr(completion_response, "_hidden_params", {}) or {}
         model = model or hidden.get("model_key") or completion_response.get("model")
@@ -228,7 +241,27 @@ def completion_cost(
 
             prompt_tokens = read("prompt_tokens", "input_tokens")
             completion_tokens = read("completion_tokens", "output_tokens")
+            details = usage.get("prompt_tokens_details") or usage.get("input_tokens_details") or {}
+            cache_read = read("cache_read_input_tokens") or int(details.get("cached_tokens") or 0)
+            cache_write = read("cache_creation_input_tokens") or int(details.get("cache_creation_tokens") or 0)
     if not model:
         return 0.0
-    prompt, completion = cost_per_token(model, prompt_tokens, completion_tokens, custom_llm_provider)
-    return prompt + completion
+    if prompt is not None or completion is not None:
+        from .tokens import _estimate
+
+        if prompt is not None:
+            prompt_tokens = _estimate(model, prompt, None, None, None, False, None)
+        if completion is not None:
+            completion_tokens = _estimate(model, completion, None, None, None, True, None)
+    input_cost, output_cost = cost_per_token(model, prompt_tokens, completion_tokens, custom_llm_provider)
+    key = _key(model, custom_llm_provider)
+    if key:
+        info = model_cost[key]
+        ordinary = info.get("input_cost_per_token") or 0
+        if cache_read:
+            rate = info.get("cache_read_input_token_cost")
+            input_cost += cache_read * ((ordinary if rate is None else rate) - ordinary)
+        if cache_write:
+            rate = info.get("cache_creation_input_token_cost")
+            input_cost += cache_write * ((ordinary if rate is None else rate) - ordinary)
+    return input_cost + output_cost

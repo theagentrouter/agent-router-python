@@ -14,18 +14,14 @@ from typing import Any, TypedDict
 # Re-exported under LiteLLM's names; frameworks call litellm.completion, litellm.get_model_info, ...
 from .. import (  # noqa: F401
     EmbeddingResponse,
-    aembedding,
     anthropic,
     anthropic_messages,
-    aresponses,
     completion_cost,
     cost_per_token,
-    embedding,
     exceptions,
     get_model_info,
     model_cost,
     register_model,
-    responses,
     stream_chunk_builder,
     supports_function_calling,
     supports_prompt_caching,
@@ -35,7 +31,11 @@ from .. import (  # noqa: F401
     validate_environment,
 )
 from .. import acompletion as _acompletion
+from .. import aembedding as _aembedding
+from .. import aresponses as _aresponses
 from .. import completion as _completion
+from .. import embedding as _embedding
+from .. import responses as _responses
 from ..exceptions import *  # noqa: F401,F403  (LiteLLM exposes its errors at top level too)
 from ..local_gateway import PROVIDERS as _PROVIDERS
 from ..models import model_cost as _model_cost
@@ -44,6 +44,11 @@ from ..tokens import token_counter as _token_counter
 from ..types import Choices, Delta, Message, ModelResponse, ModelResponseStream, StreamingChoices, Usage
 
 drop_params = False  # as in LiteLLM: True drops parameters the provider does not take, instead of raising
+api_base = None
+api_key = None
+num_retries = None
+request_timeout = None
+modify_params = False
 # Settings frameworks set on import; accepted, and have no effect here.
 suppress_debug_info = True
 telemetry = False
@@ -69,18 +74,51 @@ cost_calculator = ModuleType("litellm.cost_calculator")
 cost_calculator.completion_cost = completion_cost
 
 
+def _defaults(kwargs: dict[str, Any]) -> dict[str, Any]:
+    import warnings
+
+    if modify_params:
+        warnings.warn(
+            "theagentrouter does not modify invalid messages; modify_params is unsupported.", UserWarning, stacklevel=3
+        )
+    return {
+        **{
+            name: value
+            for name in ("api_base", "api_key", "num_retries", "request_timeout")
+            if (value := globals()[name]) is not None
+        },
+        **kwargs,
+    }
+
+
 def completion(model: str, messages: list[Any], **kwargs: Any):
     """litellm.completion, calling the functions in success_callback, failure_callback and callbacks."""
     from . import _callbacks
 
-    return _callbacks.run(_completion, model, messages, kwargs, globals())
+    return _callbacks.run(_completion, model, messages, _defaults(kwargs), globals())
 
 
 async def acompletion(model: str, messages: list[Any], **kwargs: Any):
     """litellm.acompletion, calling the callbacks; async loggers get their async_log_* methods."""
     from . import _callbacks
 
-    return await _callbacks.arun(_acompletion, model, messages, kwargs, globals())
+    return await _callbacks.arun(_acompletion, model, messages, _defaults(kwargs), globals())
+
+
+def embedding(model: str, input: str | list[Any], **kwargs: Any):
+    return _embedding(model=model, input=input, **_defaults(kwargs))
+
+
+async def aembedding(model: str, input: str | list[Any], **kwargs: Any):
+    return await _aembedding(model=model, input=input, **_defaults(kwargs))
+
+
+def responses(model: str, input: Any, **kwargs: Any):
+    return _responses(model=model, input=input, **_defaults(kwargs))
+
+
+async def aresponses(model: str, input: Any, **kwargs: Any):
+    return await _aresponses(model=model, input=input, **_defaults(kwargs))
 
 
 def token_counter(*args: Any, **kwargs: Any) -> int:
@@ -298,3 +336,14 @@ class Router:
 
     async def acompletion(self, model: str, messages: list[Any], **kwargs: Any):
         return await acompletion(model=model, messages=messages, **kwargs)
+
+    def embedding(self, model: str, input: str | list[Any], **kwargs: Any):
+        return embedding(model=model, input=input, **kwargs)
+
+    async def aembedding(self, model: str, input: str | list[Any], **kwargs: Any):
+        return await aembedding(model=model, input=input, **kwargs)
+
+    def get_model_list(self) -> list[dict[str, Any]]:
+        import copy
+
+        return copy.deepcopy(self.model_list)

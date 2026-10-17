@@ -47,8 +47,6 @@ def test_anthropic_disables_parallel_tools(fake, choice, expected):
 @pytest.mark.parametrize(
     "param,value",
     [
-        ("response_format", {"type": "json_object"}),
-        ("reasoning_effort", "high"),
         ("seed", 0),
         ("n", 2),
     ],
@@ -66,18 +64,31 @@ def test_anthropic_rejects_untranslated_options(fake, param, value):
 
 
 def test_configured_gateway_takes_claude_options_as_the_local_gateway_does(fake, monkeypatch):
-    # Claude goes in Anthropic Messages to every gateway, so options Messages lacks fail the same way.
+    # Both routes use Anthropic Messages, including LiteLLM's translated options.
     monkeypatch.setenv("AGENTROUTER_BASE_URL", fake.url)
-    with pytest.raises(exceptions.UnsupportedParamsError, match="response_format, reasoning_effort"):
-        theagentrouter.completion(
-            model="anthropic/claude-sonnet-4-5",
-            messages=HELLO,
-            response_format={"type": "json_object"},
-            reasoning_effort="high",
-        )
-    assert fake.requests == []
+    schema = {"type": "object", "properties": {"answer": {"type": "string"}}}
+    theagentrouter.completion(
+        model="anthropic/claude-sonnet-4-5",
+        messages=HELLO,
+        response_format={"type": "json_schema", "json_schema": {"name": "answer", "schema": schema}},
+        reasoning_effort="high",
+    )
+    body = fake.requests[-1][2]
+    assert body["thinking"] == {"type": "enabled", "budget_tokens": 4096}
+    assert body["max_tokens"] > body["thinking"]["budget_tokens"]
+    assert body["output_format"] == {"type": "json_schema", "schema": schema}
     for name in ("anthropic/claude-sonnet-4-5", "claude-sonnet-4-5"):
-        assert "response_format" not in litellm.get_supported_openai_params(name)
+        assert {"response_format", "reasoning_effort"} <= set(litellm.get_supported_openai_params(name))
+
+
+def test_anthropic_accepts_json_object_without_inventing_a_schema(fake):
+    theagentrouter.completion(
+        model="anthropic/claude-sonnet-4-5",
+        messages=HELLO,
+        api_base=fake.url,
+        response_format={"type": "json_object"},
+    )
+    assert "output_format" not in fake.requests[-1][2]
 
 
 def test_openai_response_details_and_serialization(fake):

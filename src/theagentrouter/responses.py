@@ -14,7 +14,7 @@ from typing import Any
 import httpx
 
 from . import exceptions, models, routing
-from .transport import _raise_for, _timeout, _wrap
+from .transport import _asend, _raise_for, _send
 
 # Responses API arguments passed to the provider as they are.
 _PASSED = (
@@ -142,7 +142,7 @@ def _check(r: httpx.Response, target: routing.Target, url: str, model: str) -> R
     _raise_for(r, r.text, target, model)
     try:
         return _parse(target, r.json(), url, model)
-    except ValueError as e:
+    except (ValueError, AttributeError, TypeError, KeyError) as e:
         raise exceptions.APIResponseValidationError(
             f"{target.provider}: reply is not JSON", model=model, llm_provider=target.provider
         ) from e
@@ -151,11 +151,7 @@ def _check(r: httpx.Response, target: routing.Target, url: str, model: str) -> R
 def responses(input: Any, model: str, **params: Any) -> ResponsesAPIResponse:
     """Same arguments as litellm.responses: ``input`` (a string or input items), ``model``, ``tools``, ..."""
     target, body, headers, url = _prepare(input, model, params)
-    try:
-        with httpx.Client(timeout=_timeout(params)) as client:
-            r = client.post(url, json=body, headers=headers)
-    except httpx.HTTPError as e:
-        raise _wrap(e, target, model) from e
+    r = _send(target, body, headers, params, model, url)
     return _check(r, target, url, model)
 
 
@@ -163,9 +159,5 @@ async def aresponses(input: Any, model: str, **params: Any) -> ResponsesAPIRespo
     """Same arguments as litellm.aresponses."""
     # In a worker thread: preparing can start the local gateway, which must not block the event loop.
     target, body, headers, url = await asyncio.to_thread(_prepare, input, model, params)
-    try:
-        async with httpx.AsyncClient(timeout=_timeout(params)) as client:
-            r = await client.post(url, json=body, headers=headers)
-    except httpx.HTTPError as e:
-        raise _wrap(e, target, model) from e
+    r = await _asend(target, body, headers, params, model, url)
     return _check(r, target, url, model)

@@ -26,11 +26,17 @@ import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from . import exceptions, local_gateway
 
 OPENAI = "openai"  # Chat Completions
 ANTHROPIC = "anthropic"  # Messages
+
+
+def _safe_url(url: str) -> str:
+    parts = urlsplit(url)
+    return urlunsplit(parts._replace(netloc=parts.netloc.rsplit("@", 1)[-1]))
 
 
 def gateway_root(url: str) -> str:
@@ -96,11 +102,11 @@ def settings() -> dict[str, str]:
 class Target:
     route: str  # "direct", "gateway" or "local gateway"
     format: str  # OPENAI or ANTHROPIC
-    base_url: str
-    api_key: str | None
+    base_url: str = field(repr=False)
+    api_key: str | None = field(repr=False)
     model: str  # the model name sent in the request body
     provider: str
-    headers: dict[str, str] = field(default_factory=dict)
+    headers: dict[str, str] = field(default_factory=dict, repr=False)
     members: tuple[str, ...] = ()  # for a route: its provider/model names, to tell which one answered
 
     @property
@@ -217,7 +223,7 @@ def _warn_route_unused(model: str, gateway: str) -> None:
         _route_warned.add(model)
         warnings.warn(
             f"route {model!r} is defined in Python, but AGENTROUTER_BASE_URL is set: routes apply to the local "
-            f"gateway only, so {model!r} goes to {gateway} as a model name, and that gateway's own routes and "
+            f"gateway only, so {model!r} goes to {_safe_url(gateway)} as a model name, and that gateway's own routes and "
             "fallbacks apply.",
             UserWarning,
             stacklevel=5,
@@ -245,12 +251,13 @@ def _named_endpoint(model: str, api_base: str, api_key: str | None, headers: dic
     key = api_key or (os.environ.get(variable) if variable else None)
     if variable and not key:
         raise exceptions.AuthenticationError(
-            f"set {variable} or pass api_key to call {api_base}", model=model, llm_provider=provider
+            f"set {variable} or pass api_key to call {_safe_url(api_base)}", model=model, llm_provider=provider
         )
     return Target("api_base", fmt, api_base, key, name, provider, headers)
 
 
 def _through_local(state: dict, model: str, provider: str, headers: dict[str, str]) -> Target:
+    local_gateway.check_credentials(state)
     # The name as written, as to any gateway; the gateway's rule for it passes the provider its own name.
     return Target(
         "local gateway", _format(provider), local_gateway.url(state, provider), None, model, provider, headers

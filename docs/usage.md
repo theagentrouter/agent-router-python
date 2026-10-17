@@ -56,7 +56,7 @@ For OpenAI Chat Completions, these go to the provider as they are:
 
 `temperature`, `top_p`, `n`, `stop`, `max_tokens`, `max_completion_tokens`, `presence_penalty`, `frequency_penalty`, `logit_bias`, `logprobs`, `top_logprobs`, `seed`, `response_format`, `tool_choice`, `parallel_tool_calls`, `reasoning_effort`, `user`, `modalities`, `prediction`, `audio`, `service_tier`.
 
-For Claude, which goes to the gateway in Anthropic's Messages format (so prompt caching and thinking keep working), the SDK translates `temperature`, `top_p`, `top_k`, `stop`, `max_tokens`, `max_completion_tokens`, `tool_choice`, `parallel_tool_calls` and `user`, and passes `thinking` (`thinking={"type": "enabled", "budget_tokens": 1024}`). `parallel_tool_calls=False` allows at most one tool call. `n=1` is fine. OpenAI-only options such as `response_format`, `reasoning_effort` and `seed` raise `UnsupportedParamsError` on this path, as in LiteLLM; with `drop_params=True` (or `theagentrouter.drop_params = True`) they are dropped instead. Use `extra_body` for other native Anthropic options. Prompt caching takes LiteLLM's `cache_control` markers: on a content part, on a whole message, or on a tool; cache reads show in `usage.prompt_tokens_details.cached_tokens`. With thinking on, the reply carries `reasoning_content` and `thinking_blocks` (streamed: `delta.reasoning_content`); send the assistant message back as it is with the tool result, since Anthropic needs its signed thinking blocks. Model capability lookups describe the bundled model catalog; they do not promise that this SDK translates every native option.
+For Claude, which goes to the gateway in Anthropic's Messages format (so prompt caching and thinking keep working), the SDK translates `temperature`, `top_p`, `top_k`, `stop`, `max_tokens`, `max_completion_tokens`, `tool_choice`, `parallel_tool_calls` and `user`, and passes `thinking` (`thinking={"type": "enabled", "budget_tokens": 1024}`). `parallel_tool_calls=False` allows at most one tool call. `n=1` is fine. `reasoning_effort` maps to a thinking budget, and a JSON schema in `response_format` maps to the Messages output format. A plain `json_object` without a schema is accepted without inventing one, as in LiteLLM. OpenAI-only options such as `seed` raise `UnsupportedParamsError`; with `drop_params=True` (or `theagentrouter.drop_params = True`) they are dropped instead. Use `extra_body` for other native Anthropic options. Prompt caching takes LiteLLM's `cache_control` markers: on a content part, on a whole message, or on a tool; cache reads show in `usage.prompt_tokens_details.cached_tokens`. With thinking on, the reply carries `reasoning_content` and `thinking_blocks` (streamed: `delta.reasoning_content`); send the assistant message back as it is with the tool result, since Anthropic needs its signed thinking blocks. Model capability lookups describe the bundled model catalog; they do not promise that this SDK translates every native option.
 
 These control the call itself:
 
@@ -69,7 +69,7 @@ These control the call itself:
 | `extra_body` | More fields in the request body, for provider-specific options |
 | `mock_response` | Answer on this computer without calling anything, for tests ([Tests](#tests)) |
 
-Any other argument is not sent. A few LiteLLM-only arguments, such as `fallbacks` and `num_retries`, warn the first time they are used; see [Coming from LiteLLM](coming-from-litellm.md#ignored-with-a-warning).
+`num_retries` (or `max_retries`) sets bounded request retries for connection failures, timeouts, 408, 429 and 5xx. It defaults to zero; authentication and budget errors are not retried. Completion streams retry only before yielding their first chunk. A route's Retry is separate and runs in the gateway, so enabling both can multiply attempts. Native Messages byte-stream setup does not yet use the common SDK retry loop. Other unknown completion arguments warn and are not sent; see [Coming from LiteLLM](coming-from-litellm.md#ignored-with-a-warning).
 
 ## Streaming
 
@@ -331,14 +331,14 @@ theagentrouter: started the local gateway on http://127.0.0.1:52413 (providers f
 The port changes from start to start, so another Agent Router gateway on 1975 (your own `aigw run`, for example) never blocks it. Every program using the SDK finds the running gateway by itself; to reach it from another tool, read the port from that line or from `port` in `~/.agentrouter/local-gateway/state.json`. Two Agent Router gateways still cannot run on one computer: `aigw` keeps two internal ports fixed (1061 and 18000), so with another Agent Router gateway running the SDK says so and asks you to stop it or set `AGENTROUTER_BASE_URL`.
 
 - The SDK sets the gateway up from the provider keys in your environment. The gateway holds the keys; its config file holds only references such as `${OPENAI_API_KEY}`.
-- It starts with a rule for every model in the SDK's bundled model list for those providers. A model the list lacks, such as a fine-tuned model, works too: the first call to it restarts the gateway with one more rule.
-- Set a new provider's key, and the next call to that provider restarts the gateway with it.
+- It starts with a rule for every model in the SDK's bundled model list for those providers. Register a custom model with `register_model` before adding it to a running gateway. An unregistered model name raises `NotFoundError` and leaves the existing process running.
+- A new registered model or provider can restart a same-version gateway. The caller must have credentials for every provider already running; otherwise the SDK raises and leaves the process running. It cannot merge credentials held only by another process.
 - `AGENTROUTER_AUTOSTART=0` stops the SDK from starting it.
 - A gateway set with `AGENTROUTER_BASE_URL` always wins, and then the SDK starts nothing.
 - Its files, including its log `aigw.log`, are in `~/.agentrouter/local-gateway/`.
 - The very first start downloads Envoy (about 100 MB, into `~/.local/share/aigw`), so it needs the internet and can take a minute.
 - It keeps running after your program ends. To stop it: `python -c "from theagentrouter import local_gateway; local_gateway.stop()"`. The next call starts it again.
-- After an upgrade of the SDK, the next call restarts a gateway that the old version started.
+- After an upgrade, existing gateway rules keep working. Stop the gateway explicitly when other programs finish to load the new version. Rotated credentials are reported before a call; stop and retry to load them. Automatic key reload is not implemented.
 
 | Provider | Set in the environment |
 |---|---|
@@ -370,7 +370,7 @@ The local gateway does the retries and the fallbacks, as Agent Router Enterprise
 - **Sharing:** `primary=["openai/gpt-4o", "openai/gpt-4o-mini"]` puts two models in one tier, which share the traffic. A fallback can be a list too.
 - `served_by` is read from the model name in the reply, so it is missing when a provider answers with a name that does not start with the model's own.
 - Routes are kept in `~/.agentrouter/routes.json` and shared by every program on the computer, like the local gateway. Defining a route again replaces it; `ar.list_routes()` and `ar.remove_route(name)` list and remove them. A changed route restarts the gateway on the next call that needs it.
-- Every model in a route needs its key in the environment; `route()` checks them when you define it.
+- Define routes without local provider keys or a companion package when exporting configuration. The machine that starts the gateway needs credentials for every provider in the saved routes.
 - A route of Anthropic and other providers reaches Anthropic through its OpenAI-compatible endpoint.
 - **Limit:** `limit=ar.Limit(60, per="minute")` lets at most 60 requests a minute through the route; the gateway answers the rest with 429 (`RateLimitError`). `per` is `"second"`, `"minute"`, `"hour"` or `"day"`. The count covers every program on the computer that uses the route. It counts requests, not tokens: Agent Router counts tokens only with a Redis-backed rate-limit service, which the local gateway does not have.
 
@@ -388,7 +388,8 @@ Path("config.yaml").write_text(local_gateway.export_config(port=1975))
 ```
 
 ```sh
-ENVOY_VERSION=1.39.4 aigw run config.yaml   # on the server, with the provider keys in its environment
+export AGENTROUTER_API_KEY=...             # the server client key; set it on clients too
+ENVOY_VERSION=1.39.4 aigw run config.yaml   # patched build; provider keys come from the server environment
 ```
 
 What the file holds:
@@ -398,7 +399,7 @@ What the file holds:
 - **Routes:** the routes defined on your computer, with their fallbacks, retries and limits.
 - **No key values:** only references such as `${OPENAI_API_KEY}`, which `aigw` fills in from the server's environment.
 
-`aigw run` checks no key from callers: anyone who can reach the port uses the provider keys behind it. Put authentication and TLS in front of it, or keep it on a private network.
+Exported configurations require a client key by default. Set `AGENTROUTER_API_KEY` on the server and on each client. The gateway accepts `Authorization: Bearer <key>` or `x-api-key: <key>` and strips the client header before forwarding. `export_config(authentication=False)` explicitly exports an open endpoint. Terminate TLS in front of the server when callers use an untrusted network. The server-authentication change requires the [patched aigw build](../local-gateway/patches/README.md); unmodified upstream v1.2.0 drops the client-key Secret.
 
 #### Routes and a gateway you set
 

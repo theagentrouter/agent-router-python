@@ -11,21 +11,63 @@ class APIError(Exception):
 
     def __init__(
         self,
-        message: str,
+        *args: Any,
+        message: str | None = None,
         model: str | None = None,
         llm_provider: str | None = None,
         status_code: int | None = None,
         response: Any = None,
         body: Any = None,
+        **kwargs: Any,
     ):
+        provider_first = {
+            "AuthenticationError",
+            "RateLimitError",
+            "PermissionDeniedError",
+            "InternalServerError",
+            "BadGatewayError",
+            "ServiceUnavailableError",
+            "APIConnectionError",
+            "APIResponseValidationError",
+            "UnsupportedParamsError",
+        }
+        order = (
+            ["message", "llm_provider", "model"]
+            if type(self).__name__ in provider_first
+            else ["message", "model", "llm_provider"]
+        )
+        if type(self).__name__ == "APIError" and args and isinstance(args[0], int):
+            order = ["status_code", "message", "llm_provider", "model", "request"]
+        elif type(self).__name__ == "UnsupportedParamsError":
+            order += ["status_code", "response"]
+        elif type(self).__name__ == "APIConnectionError":
+            order += ["request"]
+        elif type(self).__name__ in ("Timeout", "APIResponseValidationError"):
+            order += ["litellm_debug_info"]
+        else:
+            order += ["response"]
+        if order[-1] != "litellm_debug_info":
+            order.append("litellm_debug_info")
+        order += ["max_retries", "num_retries", "body"]
+        if len(args) > len(order):
+            raise TypeError("too many positional exception arguments")
+        values = {
+            "message": message,
+            "model": model,
+            "llm_provider": llm_provider,
+            "status_code": status_code,
+            "response": response,
+            "body": body,
+            **kwargs,
+        }
+        values.update(zip(order, args, strict=False))
+        message = str(values.pop("message") or "")
         super().__init__(message)
         self.message = message
-        self.model = model
-        self.llm_provider = llm_provider
-        self.response = response
-        self.body = body
-        if status_code is not None:
-            self.status_code = status_code
+        for name, value in values.items():
+            if name != "status_code" or value is not None:
+                setattr(self, name, value)
+        self.headers = getattr(self, "headers", None) or (self.response.headers if self.response is not None else {})
 
     def __str__(self) -> str:
         return self.message
@@ -73,6 +115,28 @@ class RateLimitError(APIError):
 
 class BudgetExceededError(RateLimitError):
     """A gateway refused the call because a budget is used up."""
+
+    def __init__(
+        self,
+        current_cost=None,
+        max_budget=None,
+        message=None,
+        llm_provider=None,
+        entity_type=None,
+        entity_id=None,
+        **kwargs,
+    ):
+        if isinstance(current_cost, str) and message is None:
+            message, current_cost = current_cost, None
+        super().__init__(
+            message=message or f"Budget exceeded: current cost {current_cost}, maximum budget {max_budget}",
+            llm_provider=llm_provider,
+            **kwargs,
+        )
+        self.current_cost = current_cost
+        self.max_budget = max_budget
+        self.entity_type = entity_type
+        self.entity_id = entity_id
 
 
 class InternalServerError(APIError):

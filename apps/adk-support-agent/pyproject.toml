@@ -1,0 +1,34 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "adk-support-agent"
+version = "0.1.0"
+description = "Google ADK support agent with a local KB and MCP tickets, on LiteLLM or on Agent Router's SDK"
+requires-python = ">=3.11"
+# The model SDK is not listed here: the app runs on either one, installed beside it.
+# LiteLLM: pip install -e ".[litellm,test]". Agent Router: pip install -e ../.. -e ".[test]".
+dependencies = [
+    "google-adk>=1.16,<3",
+    "mcp>=1.26,<2",
+    "python-dotenv>=1,<2",
+]
+
+[project.optional-dependencies]
+litellm = ["litellm==1.105.0"]
+test = ["pytest>=8,<9", "pytest-asyncio>=1,<2"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/adk_agent"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

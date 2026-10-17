@@ -18,13 +18,39 @@ import json
 import os
 import sys
 import tempfile
+import warnings
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
+from decimal import Decimal, InvalidOperation
 
 from . import exceptions
 
 RETRY_ON = (429, 500, 502, 503, 504)
 LIMIT_PER = ("second", "minute", "hour", "day")
+
+
+def _milliseconds(value: float, name: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a positive number of seconds")
+    try:
+        milliseconds = Decimal(str(value)) * 1000
+        if not milliseconds.is_finite() or milliseconds <= 0 or milliseconds != milliseconds.to_integral_value():
+            raise ValueError(f"{name} must be positive, finite and expressible in whole milliseconds")
+        if milliseconds >= 100000 * 3600000:
+            raise ValueError(f"{name} exceeds the gateway's maximum duration")
+        return int(milliseconds)
+    except InvalidOperation as error:
+        raise ValueError(f"{name} must be a finite duration") from error
+
+
+def _duration(value: float) -> str:
+    remaining = _milliseconds(value, "duration")
+    parts = []
+    for unit, size in (("h", 3600000), ("m", 60000), ("s", 1000), ("ms", 1)):
+        count, remaining = divmod(remaining, size)
+        if count:
+            parts.append(f"{count}{unit}")
+    return "".join(parts)
 
 
 @dataclass(frozen=True)
@@ -34,7 +60,7 @@ class Retry:
     attempts: retries in each tier of the route before the gateway moves to the next tier.
     on: HTTP status codes that count as a failure worth retrying. Connection failures always count.
     timeout: seconds each try may take, or None for no limit of its own.
-    backoff: seconds before the first retry; it doubles each time, up to 10 seconds.
+    backoff: seconds before the first retry; it doubles up to the larger of 10 seconds and backoff.
     """
 
     attempts: int = 1
@@ -43,9 +69,18 @@ class Retry:
     backoff: float = 0.1
 
     def __post_init__(self) -> None:
-        if self.attempts < 0:
-            raise ValueError("Retry.attempts must be 0 or more")
-        object.__setattr__(self, "on", tuple(int(c) for c in self.on))
+        if isinstance(self.attempts, bool) or not isinstance(self.attempts, int) or not 0 <= self.attempts < 2**32 - 1:
+            raise ValueError("Retry.attempts must be a non-negative integer below 4294967295")
+        try:
+            codes = tuple(self.on)
+        except TypeError as error:
+            raise ValueError("Retry.on must contain HTTP status codes from 100 to 599") from error
+        if any(isinstance(c, bool) or not isinstance(c, int) or not 100 <= c <= 599 for c in codes):
+            raise ValueError("Retry.on must contain integer HTTP status codes from 100 to 599")
+        object.__setattr__(self, "on", codes)
+        if self.timeout is not None:
+            _milliseconds(self.timeout, "Retry.timeout")
+        _milliseconds(self.backoff, "Retry.backoff")
 
 
 @dataclass(frozen=True)
@@ -106,12 +141,19 @@ def _load() -> dict[str, Route]:
     for name, r in raw.items():
         retry = r.get("retry") or {}
         limit = r.get("limit")
-        out[name] = Route(
-            name,
-            tuple(tuple(t) for t in r["tiers"]),
-            Retry(**{**retry, "on": tuple(retry.get("on", RETRY_ON))}),
-            Limit(**limit) if limit else None,
-        )
+        try:
+            out[name] = Route(
+                name,
+                tuple(tuple(t) for t in r["tiers"]),
+                Retry(**{**retry, "on": tuple(retry.get("on", RETRY_ON))}),
+                Limit(**limit) if limit else None,
+            )
+        except (ValueError, TypeError, KeyError):
+            warnings.warn(
+                f"saved route {name!r} is invalid and disabled; redefine it or remove its entry from routes.json",
+                UserWarning,
+                stacklevel=2,
+            )
     return out
 
 
@@ -185,9 +227,6 @@ def _check(name: str, tiers: tuple[tuple[str, ...], ...]) -> None:
             f"routes are served by the local gateway, and AGENTROUTER_BASE_URL sends calls to {gateway}. "
             "Set up fallbacks in that gateway instead, or unset AGENTROUTER_BASE_URL."
         )
-    if not local_gateway.installed():
-        raise exceptions.BadRequestError(f"routes need the local gateway, and {local_gateway.MISSING}.")
-    env = dict(os.environ)
     for model in (m for tier in tiers for m in tier):
         provider, sep, own = model.partition("/")
         if not sep or not own:
@@ -197,11 +236,6 @@ def _check(name: str, tiers: tuple[tuple[str, ...], ...]) -> None:
         if provider not in local_gateway.PROVIDERS:
             raise exceptions.BadRequestError(
                 f"the local gateway does not set up {provider!r} yet, so {model!r} cannot be in a route", model=model
-            )
-        lacking = local_gateway.missing(provider, env)
-        if lacking:
-            raise exceptions.AuthenticationError(
-                f"set {lacking} to use {model!r} in route {name!r}", model=model, llm_provider=provider
             )
 
 
@@ -222,6 +256,8 @@ def route(
     tiers = (_tier(primary), *(_tier(f) for f in fallbacks or []))
     _check(name, tiers)
     new = Route(name, tiers, retry or Retry(), limit)
+    if (new.retry.attempts + 1) * len(tiers) - 1 >= 2**32:
+        raise ValueError("the total retries across route tiers must fit an unsigned 32-bit integer")
     with _editing():
         routes = _load()
         old = routes.get(name)

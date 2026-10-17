@@ -29,9 +29,11 @@ def test_local_gateway_config_answers_only_this_computer():
     assert "- 127.0.0.1/32" in policy and "- ::1/128" in policy
 
 
-def test_exported_config_has_no_loopback_policy(env):
-    # A server gateway is called from other computers; its authentication is the team's to add.
-    assert "kind: SecurityPolicy" not in local_gateway.export_config(providers=["openai"])
+def test_exported_config_authenticates_by_default(env):
+    config = local_gateway.export_config(providers=["openai"])
+    assert "apiKeyAuth:" in config and "clientCIDRs" not in config
+    assert "${AGENTROUTER_API_KEY}" in config and "sanitize: true" in config
+    assert "apiKeyAuth:" not in local_gateway.export_config(providers=["openai"], authentication=False)
 
 
 def _network_address() -> str | None:

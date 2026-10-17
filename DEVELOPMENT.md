@@ -11,6 +11,7 @@
 | [`tests/`](tests/) | Tests against a local fake provider; [`test_local_gateway.py`](tests/test_local_gateway.py) also runs the real `aigw` when it is installed |
 | [`scripts/`](scripts/) | Real-provider checks, including [`smoke_local_gateway.py`](scripts/smoke_local_gateway.py), and the surface and model-table tools |
 | [`examples/`](examples/) | Runnable examples |
+| [`apps/`](apps/) | Two apps written against LiteLLM (a Google ADK agent and plain LiteLLM code), tested on real LiteLLM and on this SDK |
 | [`docs/`](docs/) | The documentation linked from the README |
 | [`skills/`](skills/) | Agent skills; `llms.txt` and `llms-full.txt` at the root are built from the docs, examples and skills by `make llms` |
 
@@ -30,6 +31,10 @@ Python 3.10 or newer. The only runtime dependency is `httpx`.
 ```
 
 The tests run over real HTTP against `tests/fake_provider.py`, a local server that answers like OpenAI Chat Completions and Anthropic Messages, including streaming and errors. They need no keys and no network.
+
+### The apps
+
+`make apps` runs both apps under [`apps/`](apps/) offline, on real LiteLLM and on this SDK; `make apps-live` runs them against real providers. What they cover and how to add a test: [`apps/README.md`](apps/README.md).
 
 ### The Google ADK test
 
@@ -155,7 +160,7 @@ It reads `tetrateio/agent-router-models` by default; `MODELS_REPO=owner/repo` re
 
 Three packages always use the same version: `theagentrouter-core` (the SDK, the root `pyproject.toml`), `theagentrouter` (`packages/theagentrouter/`, no code) and `theagentrouter-local-gateway` (`local-gateway/`). The local gateway uses the upstream release and SHA-256 checksums recorded in `local-gateway/aigw-release.json`.
 
-1. Run `pytest`, lint, both framework suites, and all four `scripts/smoke_*.py` checks. Required local gateway tests must run, not skip. Use a fresh machine or container if another program holds the upstream binary's internal ports.
+1. Run `pytest`, lint, both framework suites, `make apps`, `make apps-live` and all four `scripts/smoke_*.py` checks. Required local gateway tests must run, not skip. Use a fresh machine or container if another program holds the upstream binary's internal ports.
 2. Write the release notes under `## Unreleased` in `CHANGELOG.md`.
 3. Run `make release V=X.Y.Z`, from a clean working tree. It changes the version in the three `pyproject.toml` files, the exact pins between the packages and both `__init__.py` files, and turns `## Unreleased` into `## [X.Y.Z] - <today>`. Then it runs `scripts/check_release.py --tag vX.Y.Z`, ruff and pytest, and puts the files back if any of them fails. If they pass, it commits `Release X.Y.Z`, creates the annotated tag `vX.Y.Z` and prints the push commands. It never pushes. `AMEND=1` folds the release into the last commit instead of making a new one.
 4. Run `python scripts/fetch_aigw.py` on each supported platform. It downloads only the pinned upstream release and refuses a checksum mismatch. Run `python -m build` for the SDK, `python -m build packages/theagentrouter --outdir dist` for `theagentrouter`, and `python -m build --wheel local-gateway` for the companion. Build the fallback companion once, from a checkout with no program in `local-gateway/src/theagentrouter_local_gateway/bin/`: `AGENTROUTER_NO_BINARY_WHEEL=1 python -m build --wheel local-gateway`. The companion is distributed as wheels only; building it from a source checkout requires a binary first.
@@ -171,7 +176,7 @@ Three packages always use the same version: `theagentrouter-core` (the SDK, the 
    GitHub creates the three environments on the first release run; add reviewers to them under Settings → Environments if releases need approval. PyPI setup requires the owner's authenticated account; it cannot be inferred from the workflow file.
 7. Push the commit, then the tag, when publication is authorized; `make release` printed both commands. `release.yml` runs the full CI workflow, checks the tag, and downloads the SDK distributions and all four companion wheels: three with `aigw` and the `py3-none-any` fallback without it. It publishes in dependency order through trusted publishing, one job per package: the companion, then `theagentrouter-core`, then `theagentrouter`, so each package's dependencies exist when it goes up.
 
-`.github/workflows/local-gateway-build.yml` builds and tests companion wheels on macOS 13+ arm64 and Linux amd64/arm64, running every test that starts the real `aigw` (`test_local_gateway.py`, `test_routes.py`, `test_embeddings.py`). It fails if any of them is skipped. Its `fallback` job builds the `py3-none-any` companion with no program and checks that the SDK then reports no local gateway. There are no Windows or Intel macOS companion wheels with a program: pip installs the fallback there, so `pip install theagentrouter` gives the SDK alone. `theagentrouter-core` installs on every supported Python platform.
+`.github/workflows/local-gateway-build.yml` builds and tests companion wheels on macOS 13+ arm64 and Linux amd64/arm64, running every test that starts the real `aigw` (`test_local_gateway.py`, `test_routes.py`, `test_embeddings.py`, `test_go_live.py`). This includes refusing calls from a network address while allowing loopback calls. It fails if any of them is skipped. Its `fallback` job builds the `py3-none-any` companion with no program and checks that the SDK then reports no local gateway. There are no Windows or Intel macOS companion wheels with a program: pip installs the fallback there, so `pip install theagentrouter` gives the SDK alone. `theagentrouter-core` installs on every supported Python platform.
 
 `.github/workflows/update-aigw.yml` checks every Monday for a new `aigw` release (not pre-releases) and opens a pull request that updates `local-gateway/aigw-release.json` with the new version and the SHA-256 GitHub records for each platform's file. It starts CI and Security on that branch itself, because a pull request opened by a workflow starts no workflows. The pull request lists the files that still name the old version.
 

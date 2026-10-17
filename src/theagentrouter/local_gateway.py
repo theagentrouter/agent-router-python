@@ -28,8 +28,11 @@ import importlib
 import importlib.util
 import json
 import os
+import re
+import shutil
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -61,6 +64,7 @@ XDS_PORT = 18000
 ENVOY_VERSION = "1.39.4"
 START_ATTEMPTS = 3  # a free port can be taken between choosing it and aigw binding it
 START_TIMEOUT = 180.0  # seconds; the first start may fetch Envoy
+LOCK_TIMEOUT = 10.0
 # Gateway API allows at most 16 rules in one route, and aigw adds one rule of its own to each
 # AIGatewayRoute, so the per-model rules are spread over several routes of at most 15.
 RULES_PER_ROUTE = 15
@@ -116,7 +120,10 @@ def folder() -> Path:
 
 
 def _aws_region(env: dict[str, str]) -> str | None:
-    return env.get("AWS_REGION") or env.get("AWS_DEFAULT_REGION")
+    region = env.get("AWS_REGION") or env.get("AWS_DEFAULT_REGION")
+    if region and not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)+", region):
+        raise exceptions.BadRequestError("AWS_REGION must be an AWS region name, for example us-east-1")
+    return region
 
 
 def missing(provider: str, env: dict[str, str]) -> str | None:
@@ -281,7 +288,12 @@ spec:
             region = _aws_region(env)
             host, ep_port, tls, version = f"bedrock-runtime.{region}.amazonaws.com", 443, True, ""
         else:
-            host, ep_port, tls, version = _endpoint(spec["base"])
+            variable = f"{name.split('-')[0].upper()}_BASE_URL"
+            base = env.get(variable) or spec["base"]
+            parts = urlsplit(base)
+            if parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password:
+                raise exceptions.BadRequestError(f"{variable} needs an HTTP(S) URL without credentials")
+            host, ep_port, tls, version = _endpoint(base)
             if host in LOOPBACK:
                 # A hostname, not an IP: aigw run cannot tell IP backends of one rule apart (see _route_docs).
                 host = "localhost"
@@ -425,7 +437,14 @@ spec:
     return "\n---\n".join(docs) + "\n"
 
 
-def export_config(port: int = 1975, providers: list[str] | None = None, models: list[str] | None = None) -> str:
+def export_config(
+    port: int = 1975,
+    providers: list[str] | None = None,
+    models: list[str] | None = None,
+    *,
+    authentication: bool = True,
+    api_key_env: str = "AGENTROUTER_API_KEY",
+) -> str:
     """The local gateway's config, for a team to run the same gateway on a server: ``aigw run config.yaml``.
 
     Developers then set ``AGENTROUTER_BASE_URL`` to that server, and the same code works there as with
@@ -433,8 +452,10 @@ def export_config(port: int = 1975, providers: list[str] | None = None, models: 
     fixed ``port``: one rule per model in the model list for ``providers`` (default: those whose keys
     are set here), plus ``models`` (full names the list lacks, such as a fine-tuned model), and this
     computer's routes. A server cannot add a model when it is first asked for, as the local gateway does. Key values never appear: ``aigw`` fills in
-    ``${OPENAI_API_KEY}``-style references from the server's environment. ``aigw`` checks no key from
-    callers, so put authentication and TLS in front of it.
+    ``${OPENAI_API_KEY}``-style references from the server's environment. Authentication is on by
+    default: set ``api_key_env`` on the server, and clients send that key in Authorization: Bearer
+    or x-api-key. Keys are removed before forwarding. ``authentication=False`` explicitly exports
+    an open endpoint. Terminate TLS in front of the server when callers use an untrusted network.
     """
     from . import routes as routes_mod
 
@@ -465,7 +486,44 @@ def export_config(port: int = 1975, providers: list[str] | None = None, models: 
         raise exceptions.BadRequestError(
             f"the routes or models use providers not in the config: {', '.join(outside)}; add them to providers"
         )
-    return config_yaml(chosen, env, port, routed_models(chosen, extra), current, local=False)
+    config = config_yaml(chosen, env, port, routed_models(chosen, extra), current, local=False)
+    if authentication:
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", api_key_env):
+            raise ValueError("api_key_env must be an environment variable name")
+        config += "---\n" + _api_key_config(api_key_env)
+    return config
+
+
+def _api_key_config(variable: str) -> str:
+    # Missing/empty variables produce duplicate empty credentials, which fail translation closed.
+    # Store both standard SDK wire forms; Envoy's API-key filter matches header values verbatim.
+    return f"""apiVersion: v1
+kind: Secret
+metadata:
+  name: theagentrouter-client-keys
+  namespace: default
+type: Opaque
+stringData:
+  sdk: "${{{variable}}}"
+  bearer: "${{{variable}:+Bearer }}${{{variable}}}"
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: theagentrouter-client-auth
+  namespace: default
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: theagentrouter
+  apiKeyAuth:
+    credentialRefs:
+      - name: theagentrouter-client-keys
+    extractFrom:
+      - headers: [Authorization, x-api-key]
+    sanitize: true
+"""
 
 
 def _route_docs(r) -> list[str]:
@@ -535,15 +593,17 @@ spec:
         )
     if retries > 0:
         codes = "\n".join(f"        - {c}" for c in r.retry.on)
-        timeout = f"\n      timeout: {r.retry.timeout:g}s" if r.retry.timeout else ""
+        from .routes import _duration
+
+        timeout = f"\n      timeout: {_duration(r.retry.timeout)}" if r.retry.timeout is not None else ""
         policy.append(
             f"""  retry:
     numRetries: {retries}
     numAttemptsPerPriority: {per_tier}
     perRetry:
       backOff:
-        baseInterval: {max(int(r.retry.backoff * 1000), 1)}ms
-        maxInterval: 10s{timeout}
+        baseInterval: {_duration(r.retry.backoff)}
+        maxInterval: {_duration(max(10, r.retry.backoff))}{timeout}
     retryOn:
       httpStatusCodes:
 {codes}
@@ -585,7 +645,10 @@ def _backend_address(backend: str) -> tuple[str, int]:
     spec = PROVIDERS[provider]
     if spec["schema"] == "AWSBedrock":
         return f"bedrock-runtime.{_aws_region(dict(os.environ))}.amazonaws.com", 443
-    host, port, _, _ = _endpoint(spec["openai_base"] if backend.endswith("-openai") else spec["base"])
+    base = os.environ.get(f"{provider.upper()}_BASE_URL") or (
+        spec["openai_base"] if backend.endswith("-openai") else spec["base"]
+    )
+    host, port, _, _ = _endpoint(base)
     return ("localhost" if host in LOOPBACK else host), port
 
 
@@ -614,6 +677,13 @@ def _backends_ready(admin: int, routes: dict) -> bool:
 
 
 def _alive(pid: int) -> bool:
+    if pid <= 1:
+        return False
+    # Reap our own exited child before kill(0), which still succeeds for zombies.
+    with contextlib.suppress(ChildProcessError):
+        reaped, _ = os.waitpid(pid, os.WNOHANG)
+        if reaped:
+            return False
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -621,6 +691,68 @@ def _alive(pid: int) -> bool:
     except PermissionError:
         return True
     return True
+
+
+def _private_dir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    info = path.lstat()
+    if not stat.S_ISDIR(info.st_mode) or (hasattr(os, "getuid") and info.st_uid != os.getuid()):
+        raise exceptions.APIConnectionError(f"refusing unsafe local gateway directory: {path}")
+    path.chmod(0o700)
+
+
+def _stopped(pid: int) -> bool:
+    if not _alive(pid):
+        return True
+    # A child of another SDK process can exit without that parent reaping it yet.
+    # Query process status only during shutdown, never on the request path.
+    with contextlib.suppress(OSError, subprocess.SubprocessError):
+        result = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True, timeout=1)
+        return result.stdout.strip().startswith("Z")
+    return False
+
+
+def _write_state(state: dict) -> None:
+    directory = folder()
+    _private_dir(directory)
+    descriptor, name = tempfile.mkstemp(prefix=".state-", dir=directory)
+    try:
+        with os.fdopen(descriptor, "w") as handle:
+            json.dump(state, handle)
+        os.replace(name, directory / "state.json")
+    finally:
+        Path(name).unlink(missing_ok=True)
+
+
+def _credential_fingerprints(providers: list[str], env: dict[str, str]) -> dict[str, str]:
+    fingerprints = {}
+    for provider in providers:
+        spec = PROVIDERS.get(provider, {})
+        variables = list(spec.get("keys", []))
+        if provider == "bedrock":
+            variables = [
+                "AWS_PROFILE",
+                "AWS_ACCESS_KEY_ID",
+                "AWS_SECRET_ACCESS_KEY",
+                "AWS_SESSION_TOKEN",
+                "AWS_REGION",
+                "AWS_DEFAULT_REGION",
+            ]
+        if any(env.get(key) for key in variables):
+            value = json.dumps({key: env.get(key) for key in variables}, sort_keys=True)
+            fingerprints[provider] = hashlib.sha256(value.encode()).hexdigest()
+    return fingerprints
+
+
+def check_credentials(state: dict) -> None:
+    """Report rotated credentials rather than silently continuing to use the old key."""
+    current = _credential_fingerprints(state.get("providers", []), dict(os.environ))
+    previous = state.get("credential_fingerprints", {})
+    if any(provider in previous and previous[provider] != value for provider, value in current.items()):
+        raise exceptions.AuthenticationError(
+            "provider credentials changed since the local gateway started; call local_gateway.stop() "
+            "when other programs have finished, then retry to load the new keys"
+        )
 
 
 def _listening(port: int, timeout: float = 0.5) -> bool:
@@ -669,7 +801,7 @@ def running() -> dict | None:
         state = json.loads((folder() / "state.json").read_text())
     except (OSError, ValueError):
         return None
-    if not _alive(int(state.get("pid", 0))) or not _listening(int(state.get("port", PORT))):
+    if state.get("starting") or not _alive(int(state.get("pid", 0))) or not _listening(int(state.get("port", PORT))):
         return None
     return state
 
@@ -682,15 +814,31 @@ def url(state: dict, provider: str | None = None) -> str:
 @contextlib.contextmanager
 def _lock() -> Iterator[None]:
     """One program at a time starts or restarts the gateway."""
-    folder().mkdir(parents=True, exist_ok=True)
-    with open(folder() / "lock", "a+") as handle:
+    _private_dir(folder())
+    descriptor = os.open(folder() / "lock", os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    with os.fdopen(descriptor, "a+") as handle:
+        info = os.fstat(handle.fileno())
+        if not stat.S_ISREG(info.st_mode) or (hasattr(os, "getuid") and info.st_uid != os.getuid()):
+            raise exceptions.APIConnectionError("refusing unsafe local gateway lock file")
+        os.fchmod(handle.fileno(), 0o600)
         try:
             import fcntl
-
-            fcntl.flock(handle, fcntl.LOCK_EX)
         except ImportError:  # Windows: no lock yet
-            pass
-        yield
+            yield
+            return
+        deadline = time.monotonic() + LOCK_TIMEOUT
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise exceptions.Timeout("timed out waiting for the local gateway startup lock") from None
+                time.sleep(0.05)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 def _binary() -> str:
@@ -707,24 +855,40 @@ def _runtime_dir() -> Path:
 
 def stop(state: dict | None = None, timeout: float = 15.0) -> None:
     """Stop the local gateway, if one is running."""
-    state = state or running()
+    if state is None:
+        try:
+            state = json.loads((folder() / "state.json").read_text())
+        except (OSError, ValueError):
+            return
     if not state:
         return
     pid = int(state["pid"])
+    if pid <= 1 or pid == os.getpid():
+        raise exceptions.APIConnectionError("refusing to stop an invalid local gateway process")
     with contextlib.suppress(ProcessLookupError, PermissionError):
         if hasattr(os, "killpg"):
             os.killpg(pid, signal.SIGTERM)
         else:
             os.kill(pid, signal.SIGTERM)
     deadline = time.monotonic() + timeout
-    while _alive(pid) and time.monotonic() < deadline:
+    while not _stopped(pid) and time.monotonic() < deadline:
         with contextlib.suppress(ChildProcessError):
             os.waitpid(pid, os.WNOHANG)
         time.sleep(0.1)
-    if _alive(pid) and hasattr(os, "killpg"):
+    if not _stopped(pid) and hasattr(os, "killpg"):
         with contextlib.suppress(ProcessLookupError, PermissionError):
             os.killpg(pid, signal.SIGKILL)
+        # Reap the killed child as well. Never delete key files while it is still running.
+        deadline = time.monotonic() + 2
+        while not _stopped(pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+    if not _stopped(pid):
+        raise exceptions.Timeout("the local gateway did not stop; its state and key files were retained")
     (folder() / "state.json").unlink(missing_ok=True)
+    for path in (folder() / "aigw-state", _runtime_dir()):
+        if path.exists():
+            _private_dir(path)
+            shutil.rmtree(path)
 
 
 def _start(providers: list[str], models: list[str], routes: dict | None = None) -> dict:
@@ -733,7 +897,7 @@ def _start(providers: list[str], models: list[str], routes: dict | None = None) 
     routes = {} if routes is None else routes
     env = dict(os.environ)
     home = folder()
-    home.mkdir(parents=True, exist_ok=True)
+    _private_dir(home)
     if PORT and _listening(PORT):
         raise exceptions.APIConnectionError(
             f"the local gateway cannot start: port {PORT} on {HOST} is already in use, perhaps by another gateway. "
@@ -741,7 +905,7 @@ def _start(providers: list[str], models: list[str], routes: dict | None = None) 
         )
     _busy_internal()
     runtime = _runtime_dir()
-    runtime.mkdir(parents=True, exist_ok=True)
+    _private_dir(runtime)
     env.setdefault("ENVOY_VERSION", ENVOY_VERSION)
     env.update(
         AIGW_CONFIG_HOME=str(home / "config-home"),
@@ -760,11 +924,6 @@ def _start(providers: list[str], models: list[str], routes: dict | None = None) 
             if not taken or attempt == START_ATTEMPTS - 1 or (PORT and ADMIN_PORT):
                 raise
             _busy_internal()
-    admin = _envoy_admin(log_path) if routes else None
-    if admin:
-        ready_by = time.monotonic() + BACKENDS_READY_TIMEOUT
-        while time.monotonic() < ready_by and not _backends_ready(admin, routes):
-            time.sleep(0.2)
     state = {
         "pid": proc.pid,
         "port": port,
@@ -773,8 +932,18 @@ def _start(providers: list[str], models: list[str], routes: dict | None = None) 
         "routes": sorted(routes),
         "routes_fingerprint": routes_mod.fingerprint(routes),
         "versions": versions(),
+        "credential_fingerprints": _credential_fingerprints(providers, env),
     }
-    (home / "state.json").write_text(json.dumps(state))
+    try:
+        admin = _envoy_admin(log_path) if routes else None
+        if admin:
+            ready_by = time.monotonic() + BACKENDS_READY_TIMEOUT
+            while time.monotonic() < ready_by and not _backends_ready(admin, routes):
+                time.sleep(0.2)
+        _write_state(state)
+    except BaseException:
+        stop({"pid": proc.pid})
+        raise
     print(
         f"theagentrouter: started the local gateway on http://{HOST}:{port} "
         f"(providers from your environment: {', '.join(providers)}).",
@@ -795,7 +964,8 @@ def _launch(
 ) -> subprocess.Popen:
     config = home / "config.yaml"
     config.write_text(config_yaml(providers, env, port, models, routes))
-    with open(log_path, "wb") as log:
+    descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    with os.fdopen(descriptor, "wb") as log:
         proc = subprocess.Popen(
             [_binary(), "run", str(config), f"--admin-port={admin_port}"],
             stdin=subprocess.DEVNULL,
@@ -805,18 +975,25 @@ def _launch(
             env=env,
             start_new_session=True,  # outlives this program; later calls from any program use it
         )
-    deadline = time.monotonic() + START_TIMEOUT
-    while time.monotonic() < deadline:
-        if proc.poll() is not None:
-            tail = log_path.read_text(errors="replace").strip().splitlines()[-5:]
-            raise exceptions.APIConnectionError(
-                f"the local gateway stopped while starting (log: {log_path}): " + " | ".join(tail)
-            )
-        if "listening on" in log_path.read_text(errors="replace") and _listening(port):
-            return proc
-        time.sleep(0.2)
-    stop({"pid": proc.pid})
-    raise exceptions.Timeout(f"the local gateway did not start within {START_TIMEOUT:.0f}s (log: {log_path})")
+    try:
+        _write_state({"pid": proc.pid, "port": port, "starting": True})
+        deadline = time.monotonic() + START_TIMEOUT
+        while time.monotonic() < deadline:
+            lines = log_path.read_text(errors="replace").strip().splitlines()
+            if proc.poll() is not None:
+                errors = [line for line in lines if re.search(r"error|fatal|invalid|failed", line, re.IGNORECASE)]
+                detail = " | ".join((errors or lines)[-5:])
+                raise exceptions.APIConnectionError(
+                    f"the local gateway stopped while starting (log: {log_path}): {detail}"
+                )
+            if "listening on" in "\n".join(lines) and _listening(port):
+                return proc
+            time.sleep(0.2)
+        raise exceptions.Timeout(f"the local gateway did not start within {START_TIMEOUT:.0f}s (log: {log_path})")
+    except BaseException:
+        stop({"pid": proc.pid})
+        proc.wait(timeout=2)
+        raise
 
 
 def versions() -> dict[str, str]:
@@ -833,13 +1010,12 @@ def serves(state: dict | None, model: str, current: dict) -> bool:
     """The running gateway has the right rule for this name: the current route, or a plain model rule.
 
     A name that was a route when the gateway started keeps that route's fallbacks, retries and
-    limit until a restart, so it counts as served only while it is still the same route. A gateway
-    started by another version of the SDK or the local gateway (after an upgrade) serves nothing:
-    the next call restarts it with the installed one.
+    limit until a restart, so it counts as served only while it is still the same route. Existing
+    rules can be reused across SDK versions; changing a different version's config requires an explicit stop.
     """
     from . import routes as routes_mod
 
-    if not state or state.get("versions") != versions():
+    if not state:
         return False
     if model in current:
         return state.get("routes_fingerprint") == routes_mod.fingerprint(current)
@@ -857,8 +1033,31 @@ def ensure(model: str) -> dict:
         state = running()
         current = routes_mod.list_routes()
         if serves(state, model, current):
+            check_credentials(state)
             return state
+        if state and model not in current and model not in routed_models(list(PROVIDERS)):
+            raise exceptions.NotFoundError(
+                f"unknown local model {model!r}; check the name or register_model() before using a custom model",
+                model=model,
+            )
+        if state and state.get("versions") != versions():
+            raise exceptions.BadRequestError(
+                "the local gateway was started by another SDK version; stop it explicitly when other programs "
+                "have finished before changing its configuration",
+                model=model,
+            )
         providers = available(dict(os.environ))
+        if state and set(state.get("providers", [])) - set(providers):
+            raise exceptions.AuthenticationError(
+                "changing the shared gateway requires credentials for every provider already running; "
+                "its current process was left running",
+                model=model,
+            )
+        needed = {m.split("/", 1)[0] for route in current.values() for m in route.models}
+        if needed - set(providers):
+            raise exceptions.AuthenticationError(
+                "set credentials for all providers in the saved routes before starting"
+            )
         seen = set(state.get("models", [])) if state else set()
         models = routed_models(providers, seen | ({model} if model not in current else set()))
         if state:

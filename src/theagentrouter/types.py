@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import time
 from dataclasses import asdict, dataclass, field, fields
 from typing import Any
@@ -45,6 +46,9 @@ class _DictAccess:
             setattr(out, key, value)
         return out
 
+    def model_dump_json(self, *, exclude_none: bool = False, indent: int | None = None, **kwargs: Any) -> str:
+        return json.dumps(self.model_dump(mode="json", exclude_none=exclude_none), indent=indent, **kwargs)
+
 
 @dataclass
 class Function(_DictAccess):
@@ -70,6 +74,8 @@ class Message(_DictAccess):
     # Claude's thinking blocks with their signatures, as LiteLLM keeps them. Send the message back
     # as it is: Anthropic needs them in a tool-use turn when thinking is on.
     thinking_blocks: list[dict[str, Any]] | None = None
+    annotations: list[Any] | None = None
+    audio: Any = None
 
 
 @dataclass
@@ -80,6 +86,8 @@ class Delta(_DictAccess):
     refusal: str | None = None
     reasoning_content: str | None = None
     thinking_blocks: list[dict[str, Any]] | None = None
+    annotations: list[Any] | None = None
+    audio: Any = None
 
 
 @dataclass
@@ -129,6 +137,9 @@ class ModelResponse(_DictAccess):
     object: str = "chat.completion"
     # Where the call went; LiteLLM keeps the same kind of detail in _hidden_params.
     _hidden_params: dict[str, Any] = field(default_factory=dict)
+    system_fingerprint: str | None = None
+    service_tier: str | None = None
+    _response_ms: float | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -139,6 +150,8 @@ class ModelResponseStream(_DictAccess):
     usage: Usage | None = None
     created: int = field(default_factory=lambda: int(time.time()))
     object: str = "chat.completion.chunk"
+    system_fingerprint: str | None = None
+    service_tier: str | None = None
 
 
 def _dump(value: Any, *, mode: str, exclude_none: bool) -> Any:

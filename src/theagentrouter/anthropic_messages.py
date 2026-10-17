@@ -15,9 +15,9 @@ from typing import Any
 
 import httpx
 
-from . import anthropic_format, exceptions, local_gateway, models, routing
+from . import _http, anthropic_format, exceptions, local_gateway, models, routing
 from .responses import _wrap_value
-from .transport import _raise_for, _timeout, _wrap
+from .transport import _asend, _raise_for, _send, _timeout, _wrap
 
 # Messages arguments sent to the gateway as they are; the rest of **kwargs controls the call.
 _PASSED = (
@@ -112,12 +112,15 @@ def _hidden(target: routing.Target, url: str, usage: dict[str, Any] | None) -> d
 def _check(r: httpx.Response, target: routing.Target, url: str, model: str) -> AnthropicMessagesResponse:
     _raise_for(r, r.text, target, model)
     try:
-        resp = AnthropicMessagesResponse(r.json())
-    except ValueError as e:
+        data = r.json()
+        if not isinstance(data, dict) or not isinstance(data.get("content"), list):
+            raise ValueError("missing Messages content")
+        resp = AnthropicMessagesResponse(data)
+        resp._hidden_params = _hidden(target, url, resp.get("usage") or {})
+    except (ValueError, TypeError, AttributeError, KeyError) as e:
         raise exceptions.APIResponseValidationError(
-            f"{target.provider}: reply is not JSON", model=model, llm_provider=target.provider
+            f"{target.provider}: malformed Messages response", model=model, llm_provider=target.provider, response=r
         ) from e
-    resp._hidden_params = _hidden(target, url, resp.get("usage") or {})
     return resp
 
 
@@ -133,17 +136,20 @@ def _events(buffer: bytes) -> tuple[list[bytes], bytes]:
 
 
 def _stream(target: routing.Target, headers: dict, url: str, body: dict, model: str, params: dict) -> Iterator[bytes]:
-    client = httpx.Client(timeout=_timeout(params))
+    client = _http.client(url)
     try:
-        r = client.send(client.build_request("POST", url, json=body, headers=headers), stream=True)
+        r = client.send(
+            client.build_request("POST", url, json=body, headers=headers, timeout=_timeout(params)), stream=True
+        )
     except httpx.HTTPError as e:
-        client.close()
         raise _wrap(e, target, model) from e
-    if r.status_code >= 400:
+    if r.status_code >= 300:
         text = r.read().decode(errors="replace")
         r.close()
-        client.close()
         _raise_for(r, text, target, model)
+    if "text/event-stream" not in r.headers.get("content-type", "").lower():
+        r.close()
+        raise exceptions.APIResponseValidationError("Expected a text/event-stream response", model=model, response=r)
 
     def events() -> Iterator[bytes]:
         buffer = b""
@@ -157,7 +163,6 @@ def _stream(target: routing.Target, headers: dict, url: str, body: dict, model: 
             raise _wrap(e, target, model) from e
         finally:
             r.close()
-            client.close()
 
     return events()
 
@@ -165,17 +170,20 @@ def _stream(target: routing.Target, headers: dict, url: str, body: dict, model: 
 async def _astream(
     target: routing.Target, headers: dict, url: str, body: dict, model: str, params: dict
 ) -> AsyncIterator[bytes]:
-    client = httpx.AsyncClient(timeout=_timeout(params))
+    client = _http.async_client(url)
     try:
-        r = await client.send(client.build_request("POST", url, json=body, headers=headers), stream=True)
+        r = await client.send(
+            client.build_request("POST", url, json=body, headers=headers, timeout=_timeout(params)), stream=True
+        )
     except httpx.HTTPError as e:
-        await client.aclose()
         raise _wrap(e, target, model) from e
-    if r.status_code >= 400:
+    if r.status_code >= 300:
         text = (await r.aread()).decode(errors="replace")
         await r.aclose()
-        await client.aclose()
         _raise_for(r, text, target, model)
+    if "text/event-stream" not in r.headers.get("content-type", "").lower():
+        await r.aclose()
+        raise exceptions.APIResponseValidationError("Expected a text/event-stream response", model=model, response=r)
 
     async def events() -> AsyncIterator[bytes]:
         buffer = b""
@@ -190,7 +198,6 @@ async def _astream(
             raise _wrap(e, target, model) from e
         finally:
             await r.aclose()
-            await client.aclose()
 
     return events()
 
@@ -218,11 +225,7 @@ def create(
     body = _body(target, max_tokens, messages, stream, params)
     if stream:
         return _stream(target, headers, url, body, model, params)
-    try:
-        with httpx.Client(timeout=_timeout(params)) as client:
-            r = client.post(url, json=body, headers=headers)
-    except httpx.HTTPError as e:
-        raise _wrap(e, target, model) from e
+    r = _send(target, body, headers, params, model, url)
     return _check(r, target, url, model)
 
 
@@ -250,11 +253,7 @@ async def acreate(
     body = _body(target, max_tokens, messages, stream, params)
     if stream:
         return await _astream(target, headers, url, body, model, params)
-    try:
-        async with httpx.AsyncClient(timeout=_timeout(params)) as client:
-            r = await client.post(url, json=body, headers=headers)
-    except httpx.HTTPError as e:
-        raise _wrap(e, target, model) from e
+    r = await _asend(target, body, headers, params, model, url)
     return _check(r, target, url, model)
 
 
