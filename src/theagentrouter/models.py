@@ -25,6 +25,19 @@ def _load() -> dict[str, dict[str, Any]]:
 
 # Same name LiteLLM uses, so code reading litellm.model_cost works unchanged.
 model_cost: dict[str, dict[str, Any]] = _load()
+
+
+def _load_lifecycle() -> dict[str, dict[str, Any]]:
+    try:
+        return json.loads(resources.files(__package__).joinpath("model_lifecycle.json").read_text())
+    except FileNotFoundError:
+        return {"retired": {}, "deprecated": {}}
+
+
+# Models the list marks deprecated: retired ones (no longer offered) by name -> the list's reason, and
+# still-offered ones by name -> their retirement date and reason. Not part of model_cost.
+lifecycle: dict[str, dict[str, Any]] = _load_lifecycle()
+_deprecation_warned: set[str] = set()
 _table = model_cost  # register_model's argument has the same name, as in LiteLLM
 
 
@@ -41,6 +54,7 @@ def _per_token(per_million: str | float | None) -> float | None:
 def _from_catalog_record(record: dict[str, Any]) -> dict[str, Any]:
     """One model from tetrateio/agent-router-models, in LiteLLM's field names."""
     caps = set(record.get("capabilities") or [])
+    metadata = record.get("metadata") or {}
     modal_in = set((record.get("modalities") or {}).get("input") or [])
     limits = record.get("limits") or {}
     window, output = record.get("contextWindow"), limits.get("max_output_tokens")
@@ -64,8 +78,46 @@ def _from_catalog_record(record: dict[str, Any]) -> dict[str, Any]:
         "supports_vision": "vision" in caps or "image" in modal_in,
         "supports_prompt_caching": "prompt_caching" in caps,
         "supports_pdf_input": "pdf_support" in caps,
+        # LiteLLM's name for the date a model stops being served.
+        "deprecation_date": metadata.get("retirement_date") if metadata.get("deprecated") else None,
     }
     return {k: v for k, v in entry.items() if v is not None}
+
+
+def _catalog_key(record: dict[str, Any]) -> str:
+    provider, model = record["provider"], record["model"]
+    # Some catalogs already prefix the provider (DeepInfra: "deepinfra/Qwen/..."); add it once.
+    return model if model.startswith(provider + "/") else f"{provider}/{model}"
+
+
+def lifecycle_from_catalog(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """The deprecated models of a tetrateio/agent-router-models file: retired, or still offered with a date."""
+    out: dict[str, dict[str, Any]] = {"retired": {}, "deprecated": {}}
+    for record in data.get("models", []):
+        metadata = record.get("metadata") or {}
+        if not metadata.get("deprecated"):
+            continue
+        date = metadata.get("retirement_date")
+        reason = metadata.get("deprecated_reason") or (f"retires on {date}" if date else "deprecated")
+        if record.get("isEnabled") is False:
+            out["retired"][_catalog_key(record)] = reason
+        else:
+            out["deprecated"][_catalog_key(record)] = {"date": date, "reason": reason}
+    return out
+
+
+def retired_reason(model: str) -> str | None:
+    """Why the model list no longer offers this model, or None when it is not retired there."""
+    return lifecycle["retired"].get(model)
+
+
+def warn_if_deprecated(model: str) -> None:
+    """Warn once per program when the model list marks a model deprecated."""
+    info = lifecycle["deprecated"].get(model)
+    if info and model not in _deprecation_warned:
+        _deprecation_warned.add(model)
+        when = f" and retires on {info['date']}" if info.get("date") else ""
+        warnings.warn(f"{model} is deprecated{when}: {info['reason']}", stacklevel=3)
 
 
 def from_catalog(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -74,9 +126,7 @@ def from_catalog(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
     for record in data.get("models", []):
         if record.get("isEnabled") is False:
             continue
-        provider, model = record["provider"], record["model"]
-        # Some catalogs already prefix the provider (DeepInfra: "deepinfra/Qwen/..."); add it once.
-        table[model if model.startswith(provider + "/") else f"{provider}/{model}"] = _from_catalog_record(record)
+        table[_catalog_key(record)] = _from_catalog_record(record)
     return table
 
 
@@ -103,6 +153,8 @@ def register_model(model_cost: dict[str, Any] | str) -> dict[str, dict[str, Any]
     if not isinstance(model_cost, dict):
         raise exceptions.BadRequestError("register_model takes a dict of model name to details, or a URL of one")
     if isinstance(model_cost.get("models"), list):  # a tetrateio/agent-router-models file
+        for kind, models in lifecycle_from_catalog(model_cost).items():
+            lifecycle[kind].update(models)
         model_cost = from_catalog(model_cost)
     for name, details in model_cost.items():
         if not isinstance(details, dict) or name == "sample_spec":  # LiteLLM's file documents its fields here
@@ -164,6 +216,11 @@ def provider_of(name: str) -> str | None:
 def get_model_info(model: str, custom_llm_provider: str | None = None) -> dict[str, Any]:
     key = _key(model, custom_llm_provider)
     if key is None:
+        reason = retired_reason(model if "/" in model else f"{custom_llm_provider}/{model}")
+        if reason is not None:
+            raise exceptions.NotFoundError(
+                f"{model} is no longer offered: {reason}", model=model, llm_provider=custom_llm_provider
+            )
         raise exceptions.NotFoundError(
             f"no model details for {model!r}; it may still work, the table only lists known models",
             model=model,

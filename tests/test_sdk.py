@@ -425,3 +425,54 @@ def test_stream_chunk_model_dump_exclude_none(fake, model):
     assert text == original_text
     assert text.strip() == "echo: refunds yesterday"
     assert json.loads(json.dumps(dumped)) == dumped
+
+
+def test_the_model_list_marks_retired_and_deprecated_models():
+    from theagentrouter.models import lifecycle_from_catalog
+
+    data = {
+        "models": [
+            {
+                "provider": "openai",
+                "model": "acme-old",
+                "isEnabled": False,
+                "metadata": {"deprecated": True, "retirement_date": "2026-01-01", "deprecated_reason": "Use acme-new."},
+            },
+            {
+                "provider": "deepinfra",
+                "model": "deepinfra/acme/soon",
+                "metadata": {"deprecated": True, "retirement_date": "2027-01-01"},
+            },
+            {"provider": "openai", "model": "acme-new", "metadata": {}},
+        ]
+    }
+    assert lifecycle_from_catalog(data) == {
+        "retired": {"openai/acme-old": "Use acme-new."},
+        "deprecated": {"deepinfra/acme/soon": {"date": "2027-01-01", "reason": "retires on 2027-01-01"}},
+    }
+
+
+def test_a_retired_model_says_so_instead_of_unknown(monkeypatch):
+    monkeypatch.setitem(
+        theagentrouter.models.lifecycle["retired"], "openai/acme-old", "Retired on 2026-01-01. Replacement: acme-new."
+    )
+    with pytest.raises(
+        exceptions.NotFoundError,
+        match=r"openai/acme-old is no longer offered: Retired on 2026-01-01\. Replacement: acme-new\.",
+    ):
+        theagentrouter.completion(model="openai/acme-old", messages=HELLO)
+    with pytest.raises(exceptions.NotFoundError, match="no longer offered"):
+        theagentrouter.get_model_info("openai/acme-old")
+
+
+def test_a_deprecated_model_warns_once_and_has_litellms_deprecation_date(monkeypatch):
+    from theagentrouter import models
+
+    info = theagentrouter.get_model_info("anthropic/claude-sonnet-4-5")
+    assert info["deprecation_date"] == models.lifecycle["deprecated"]["anthropic/claude-sonnet-4-5"]["date"]
+    monkeypatch.setattr(models, "_deprecation_warned", set())
+    with pytest.warns(UserWarning, match="anthropic/claude-sonnet-4-5 is deprecated"):
+        models.warn_if_deprecated("anthropic/claude-sonnet-4-5")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        models.warn_if_deprecated("anthropic/claude-sonnet-4-5")  # once per program

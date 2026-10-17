@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from . import _files, exceptions, local_gateway
+from . import _files, exceptions, local_gateway, models
 
 OPENAI = "openai"  # Chat Completions
 ANTHROPIC = "anthropic"  # Messages
@@ -198,6 +198,9 @@ def resolve(
     written = model
     model = with_provider(model)
     provider, _ = split_model(model)
+    if (reason := models.retired_reason(model)) is not None:
+        raise exceptions.NotFoundError(f"{model} is no longer offered: {reason}", model=model, llm_provider=provider)
+    models.warn_if_deprecated(model)
     if api_key is not None:
         _warn_key_unused()
     # The gateway's rules use the full name; the request carries the name as written, as to a gateway you set.

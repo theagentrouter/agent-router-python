@@ -145,7 +145,9 @@ Explain the change in the pull request: removing or changing an item breaks code
 .venv/bin/python scripts/sync_models.py
 ```
 
-It reads `tetrateio/agent-router-models` by default; `MODELS_REPO=owner/repo` reads another copy.
+It reads `tetrateio/agent-router-models` by default; `MODELS_REPO=owner/repo` reads another copy. It also writes `src/theagentrouter/model_lifecycle.json`: the models the list marks deprecated, outside `model_cost`, with the list's own reason text.
+
+`.github/workflows/update-models.yml` runs the same script every Monday (or by hand) and opens a pull request when the snapshot changes, listing the models added, removed and changed and the source commit. The list has no tags or releases, so it is checked on a schedule.
 
 ## How a call works
 

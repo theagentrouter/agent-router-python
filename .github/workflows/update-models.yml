@@ -1,0 +1,77 @@
+name: Update models
+
+# Opens a pull request when tetrateio/agent-router-models changes the model list. That repository has
+# no tags or releases: it changes by pull requests to main, so this checks on a schedule.
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write        # push the branch
+  pull-requests: write   # open the pull request
+  actions: write         # start CI and Security on the branch
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE: tetrateio/agent-router-models
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - name: Refresh the bundled model list and open a pull request
+        run: |
+          source_sha=$(gh api "repos/$SOURCE/commits/main" --jq .sha)
+          branch="update-models-${source_sha:0:12}"
+          if git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
+            echo "$branch already exists"
+            exit 0
+          fi
+
+          pip install --quiet -e .
+          git show HEAD:src/theagentrouter/model_catalog.json > before.json
+          python scripts/sync_models.py
+          if git diff --quiet -- src/theagentrouter/model_catalog.json src/theagentrouter/model_lifecycle.json; then
+            echo "the bundled model list matches $SOURCE at ${source_sha:0:12}"
+            exit 0
+          fi
+
+          summary=$(python - <<'PY'
+          import json
+          before = json.load(open("before.json"))
+          after = json.load(open("src/theagentrouter/model_catalog.json"))
+          added = sorted(set(after) - set(before))
+          removed = sorted(set(before) - set(after))
+          changed = sorted(k for k in set(before) & set(after) if before[k] != after[k])
+          for title, names in (("Added", added), ("Removed", removed), ("Changed", changed)):
+              print(f"**{title}:** {len(names)}")
+              for name in names[:50]:
+                  print(f"- `{name}`")
+              if len(names) > 50:
+                  print(f"- and {len(names) - 50} more")
+              print()
+          PY
+          )
+          rm before.json
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -am "Update the bundled model list to $SOURCE ${source_sha:0:12}"
+          git push origin "$branch"
+
+          {
+            echo "This refreshes \`src/theagentrouter/model_catalog.json\` and \`model_lifecycle.json\` from [$SOURCE](https://github.com/$SOURCE/tree/$source_sha) at \`${source_sha:0:12}\`, with \`scripts/sync_models.py\`."
+            echo
+            echo "$summary"
+            echo "A removed model is one the list no longer offers; the SDK then says why instead of calling it unknown. Users get the new list with the next release."
+          } > body.md
+          gh pr create --head "$branch" --title "Update the bundled model list to $SOURCE ${source_sha:0:12}" --body-file body.md
+
+          # A pull request opened with this workflow's token starts no workflows, so start them here.
+          gh workflow run ci.yml --ref "$branch"
+          gh workflow run security.yml --ref "$branch"
