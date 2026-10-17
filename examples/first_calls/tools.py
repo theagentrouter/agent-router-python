@@ -8,7 +8,8 @@ import json
 
 import theagentrouter
 
-MODEL = "anthropic/claude-sonnet-5-5"
+# A Claude model that accepts a forced tool call (tool_choice="required"); claude-sonnet-5-5 does not.
+MODEL = "anthropic/claude-haiku-5-5"
 tools = [
     {
         "type": "function",

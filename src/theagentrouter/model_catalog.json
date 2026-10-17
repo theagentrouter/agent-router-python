@@ -15,7 +15,14 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": true
+  "supports_pdf_input": true,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ]
  },
  "anthropic/claude-fable-5-1": {
   "litellm_provider": "anthropic",
@@ -33,7 +40,14 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": true
+  "supports_pdf_input": true,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ]
  },
  "anthropic/claude-haiku-4-5": {
   "litellm_provider": "anthropic",
@@ -87,7 +101,14 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": true
+  "supports_pdf_input": true,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ]
  },
  "anthropic/claude-opus-4-5": {
   "litellm_provider": "anthropic",
@@ -105,7 +126,12 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": true
+  "supports_pdf_input": true,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high"
+  ]
  },
  "anthropic/claude-opus-4-5-20251101": {
   "litellm_provider": "anthropic",
@@ -123,7 +149,12 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": true
+  "supports_pdf_input": true,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high"
+  ]
  },
  "anthropic/claude-opus-4-6": {
   "litellm_provider": "anthropic",
@@ -141,7 +172,13 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": true
+  "supports_pdf_input": true,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high",
+   "max"
+  ]
  },
  "anthropic/claude-opus-4-7": {
   "litellm_provider": "anthropic",
@@ -159,7 +196,14 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": true
+  "supports_pdf_input": true,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ]
  },
  "anthropic/claude-opus-4-8": {
   "litellm_provider": "anthropic",
@@ -177,7 +221,14 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": true
+  "supports_pdf_input": true,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ]
  },
  "anthropic/claude-opus-5": {
   "litellm_provider": "anthropic",
@@ -195,7 +246,14 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": true
+  "supports_pdf_input": true,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ]
  },
  "anthropic/claude-opus-5-5": {
   "litellm_provider": "anthropic",
@@ -213,7 +271,14 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": true
+  "supports_pdf_input": true,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ]
  },
  "anthropic/claude-sonnet-4-5": {
   "litellm_provider": "anthropic",
@@ -269,7 +334,13 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": true
+  "supports_pdf_input": true,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high",
+   "max"
+  ]
  },
  "anthropic/claude-sonnet-5": {
   "litellm_provider": "anthropic",
@@ -287,7 +358,14 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": true
+  "supports_pdf_input": true,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ]
  },
  "anthropic/claude-sonnet-5-5": {
   "litellm_provider": "anthropic",
@@ -305,7 +383,14 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": true
+  "supports_pdf_input": true,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ]
  },
  "deepinfra/BAAI/bge-base-en-v1.5": {
   "litellm_provider": "deepinfra",
@@ -2335,7 +2420,11 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": false,
-  "supports_pdf_input": true
+  "supports_pdf_input": true,
+  "reasoning_efforts": [
+   "minimal",
+   "high"
+  ]
  },
  "gemini/gemini-3.1-pro-preview": {
   "litellm_provider": "gemini",
@@ -2443,7 +2532,12 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": true
+  "supports_pdf_input": true,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high"
+  ]
  },
  "gemini/gemini-3.8-flash": {
   "litellm_provider": "gemini",
@@ -2461,7 +2555,12 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": true
+  "supports_pdf_input": true,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high"
+  ]
  },
  "gemini/gemini-4-argon": {
   "litellm_provider": "gemini",
@@ -2479,7 +2578,12 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": true
+  "supports_pdf_input": true,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high"
+  ]
  },
  "gemini/gemini-embedding-2": {
   "litellm_provider": "gemini",
@@ -2508,7 +2612,12 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": false,
-  "supports_pdf_input": true
+  "supports_pdf_input": true,
+  "reasoning_efforts": [
+   "minimal",
+   "medium",
+   "high"
+  ]
  },
  "gemini/gemini-robotics-er-2-preview": {
   "litellm_provider": "gemini",
@@ -2543,7 +2652,12 @@
   "supports_reasoning": true,
   "supports_vision": false,
   "supports_prompt_caching": true,
-  "supports_pdf_input": false
+  "supports_pdf_input": false,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high"
+  ]
  },
  "groq/openai/gpt-oss-20b": {
   "litellm_provider": "groq",
@@ -2560,7 +2674,12 @@
   "supports_reasoning": true,
   "supports_vision": false,
   "supports_prompt_caching": true,
-  "supports_pdf_input": false
+  "supports_pdf_input": false,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high"
+  ]
  },
  "groq/openai/gpt-oss-safeguard-20b": {
   "litellm_provider": "groq",
@@ -2593,7 +2712,14 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": false,
-  "supports_pdf_input": false
+  "supports_pdf_input": false,
+  "reasoning_efforts": [
+   "none",
+   "default",
+   "low",
+   "medium",
+   "high"
+  ]
  },
  "openai/chat-latest": {
   "litellm_provider": "openai",
@@ -2833,7 +2959,13 @@
   "supports_vision": true,
   "supports_prompt_caching": true,
   "supports_pdf_input": false,
-  "deprecation_date": "2026-12-11"
+  "deprecation_date": "2026-12-11",
+  "reasoning_efforts": [
+   "minimal",
+   "low",
+   "medium",
+   "high"
+  ]
  },
  "openai/gpt-5-mini": {
   "litellm_provider": "openai",
@@ -2886,7 +3018,10 @@
   "supports_vision": true,
   "supports_prompt_caching": false,
   "supports_pdf_input": false,
-  "deprecation_date": "2026-12-11"
+  "deprecation_date": "2026-12-11",
+  "reasoning_efforts": [
+   "high"
+  ]
  },
  "openai/gpt-5.1": {
   "litellm_provider": "openai",
@@ -2904,7 +3039,13 @@
   "supports_vision": true,
   "supports_prompt_caching": true,
   "supports_pdf_input": false,
-  "deprecation_date": "2027-04-01"
+  "deprecation_date": "2027-04-01",
+  "reasoning_efforts": [
+   "none",
+   "low",
+   "medium",
+   "high"
+  ]
  },
  "openai/gpt-5.2": {
   "litellm_provider": "openai",
@@ -2921,7 +3062,14 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": false
+  "supports_pdf_input": false,
+  "reasoning_efforts": [
+   "none",
+   "low",
+   "medium",
+   "high",
+   "xhigh"
+  ]
  },
  "openai/gpt-5.2-pro": {
   "litellm_provider": "openai",
@@ -2937,7 +3085,12 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": false,
-  "supports_pdf_input": false
+  "supports_pdf_input": false,
+  "reasoning_efforts": [
+   "medium",
+   "high",
+   "xhigh"
+  ]
  },
  "openai/gpt-5.3-codex": {
   "litellm_provider": "openai",
@@ -2955,7 +3108,13 @@
   "supports_vision": true,
   "supports_prompt_caching": true,
   "supports_pdf_input": false,
-  "deprecation_date": "2027-04-01"
+  "deprecation_date": "2027-04-01",
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high",
+   "xhigh"
+  ]
  },
  "openai/gpt-5.4": {
   "litellm_provider": "openai",
@@ -2972,7 +3131,14 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": false
+  "supports_pdf_input": false,
+  "reasoning_efforts": [
+   "none",
+   "low",
+   "medium",
+   "high",
+   "xhigh"
+  ]
  },
  "openai/gpt-5.4-mini": {
   "litellm_provider": "openai",
@@ -3023,7 +3189,12 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": false,
-  "supports_pdf_input": false
+  "supports_pdf_input": false,
+  "reasoning_efforts": [
+   "medium",
+   "high",
+   "xhigh"
+  ]
  },
  "openai/gpt-5.5": {
   "litellm_provider": "openai",
@@ -3040,7 +3211,14 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": false
+  "supports_pdf_input": false,
+  "reasoning_efforts": [
+   "none",
+   "low",
+   "medium",
+   "high",
+   "xhigh"
+  ]
  },
  "openai/gpt-5.5-pro": {
   "litellm_provider": "openai",
@@ -3074,7 +3252,15 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": false
+  "supports_pdf_input": false,
+  "reasoning_efforts": [
+   "none",
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ]
  },
  "openai/gpt-5.6-sol": {
   "litellm_provider": "openai",
@@ -3092,7 +3278,15 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": false
+  "supports_pdf_input": false,
+  "reasoning_efforts": [
+   "none",
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ]
  },
  "openai/gpt-5.6-terra": {
   "litellm_provider": "openai",
@@ -3110,7 +3304,15 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": false
+  "supports_pdf_input": false,
+  "reasoning_efforts": [
+   "none",
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ]
  },
  "openai/gpt-6-astra": {
   "litellm_provider": "openai",
@@ -3128,7 +3330,14 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": false
+  "supports_pdf_input": false,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ]
  },
  "openai/gpt-6-luna": {
   "litellm_provider": "openai",
@@ -3146,7 +3355,15 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": false
+  "supports_pdf_input": false,
+  "reasoning_efforts": [
+   "none",
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ]
  },
  "openai/gpt-6-sol": {
   "litellm_provider": "openai",
@@ -3164,7 +3381,15 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": false
+  "supports_pdf_input": false,
+  "reasoning_efforts": [
+   "none",
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ]
  },
  "openai/gpt-6.1-sol": {
   "litellm_provider": "openai",
@@ -3182,7 +3407,14 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": false
+  "supports_pdf_input": false,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high",
+   "xhigh",
+   "max"
+  ]
  },
  "openai/gpt-image-1": {
   "litellm_provider": "openai",
@@ -3454,7 +3686,13 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": false
+  "supports_pdf_input": false,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high",
+   "xhigh"
+  ]
  },
  "xai/grok-4.3": {
   "litellm_provider": "xai",
@@ -3469,7 +3707,14 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": false
+  "supports_pdf_input": false,
+  "reasoning_efforts": [
+   "none",
+   "low",
+   "medium",
+   "high",
+   "xhigh"
+  ]
  },
  "xai/grok-4.5": {
   "litellm_provider": "xai",
@@ -3484,7 +3729,13 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": false
+  "supports_pdf_input": false,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high",
+   "xhigh"
+  ]
  },
  "xai/grok-4.6": {
   "litellm_provider": "xai",
@@ -3499,7 +3750,13 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": false
+  "supports_pdf_input": false,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high",
+   "xhigh"
+  ]
  },
  "xai/grok-4.7": {
   "litellm_provider": "xai",
@@ -3514,7 +3771,13 @@
   "supports_reasoning": true,
   "supports_vision": true,
   "supports_prompt_caching": true,
-  "supports_pdf_input": false
+  "supports_pdf_input": false,
+  "reasoning_efforts": [
+   "low",
+   "medium",
+   "high",
+   "xhigh"
+  ]
  },
  "xai/grok-build-0.1": {
   "litellm_provider": "xai",

@@ -6,6 +6,9 @@ All notable changes to this project are listed here. The format follows [Keep a 
 
 ### Fixed
 
+- `response_format` with a JSON schema works for Claude: it is sent as `output_config.format`, the field Anthropic takes now. `output_format` was refused.
+- `reasoning_effort` and LiteLLM's `thinking={"type": "enabled", ...}` work on Claude 5 models, which think adaptively and refuse a fixed budget: they get `thinking: adaptive` with `output_config.effort`. The model list says which models these are. For older Claude models, a thinking budget that would not fit the caller's `max_tokens` is reduced to fit.
+- Adding a route or model to a running local gateway with an HTTPS provider (every real provider) no longer stops it. The gateway's config named `BackendTLSPolicy` by an older API version, so the reload could not update it. Two examples no longer assume Claude's reply starts with text, and the tool example uses a model that accepts a forced tool call.
 - A relative or `~` `AGENTROUTER_HOME` works: the local gateway resolved it a second time inside that folder and did not start.
 
 ### Changed

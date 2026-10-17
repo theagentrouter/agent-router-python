@@ -237,6 +237,14 @@ def convert_tool_choice(choice: Any) -> dict[str, Any] | None:
     return None
 
 
+def _effort_levels(model: str) -> list[str] | None:
+    """The effort levels of a Claude model that thinks adaptively, from the model list; None for a token budget."""
+    from . import models
+
+    key = models._key(model, "anthropic")
+    return (models.model_cost.get(key) or {}).get("reasoning_efforts") if key else None
+
+
 def build_body(
     model: str, messages: list[Any], tools: list[dict[str, Any]] | None, stream: bool, params: dict[str, Any]
 ) -> dict[str, Any]:
@@ -281,13 +289,40 @@ def build_body(
         body["metadata"] = {"user_id": str(params["user"])}
     thinking = params.get("thinking")
     effort = params.get("reasoning_effort")
-    if thinking is None and effort not in (None, "none"):
+    levels = _effort_levels(model)
+    if levels:
+        # Claude 5 and later think adaptively: the model decides how much, and effort says how hard.
+        # They refuse a fixed budget, so LiteLLM's {"type": "enabled", "budget_tokens": N} becomes adaptive.
+        if isinstance(thinking, dict) and thinking.get("type") == "enabled":
+            thinking = {"type": "adaptive"}
+        if thinking is None and effort not in (None, "none"):
+            level = "low" if effort == "minimal" else effort
+            if level not in levels:
+                raise exceptions.BadRequestError(
+                    f"Invalid reasoning_effort: {effort!r}; this model takes {', '.join(levels)}",
+                    model=model,
+                    llm_provider="anthropic",
+                )
+            thinking = {"type": "adaptive"}
+            body["output_config"] = {**(body.get("output_config") or {}), "effort": level}
+    elif thinking is None and effort not in (None, "none"):
         budgets = {"minimal": 1024, "low": 1024, "medium": 2048, "high": 4096, "xhigh": 8192, "max": 16384}
         if effort not in budgets:
             raise exceptions.BadRequestError(
                 f"Invalid reasoning_effort: {effort!r}", model=model, llm_provider="anthropic"
             )
-        thinking = {"type": "enabled", "budget_tokens": budgets[effort]}
+        budget = budgets[effort]
+        asked = params.get("max_tokens") or params.get("max_completion_tokens")
+        if asked and budget >= asked:
+            # Claude needs max_tokens above the budget; keep the caller's max_tokens and think less.
+            if asked <= 1024:
+                raise exceptions.BadRequestError(
+                    f"reasoning_effort needs max_tokens above 1024 for this model; got {asked}",
+                    model=model,
+                    llm_provider="anthropic",
+                )
+            budget = asked - 1
+        thinking = {"type": "enabled", "budget_tokens": budget}
     if thinking:
         body["thinking"] = thinking
         budget = (thinking.get("budget_tokens") or 0) if isinstance(thinking, dict) else 0
@@ -297,7 +332,10 @@ def build_body(
     if response_format:
         schema = response_format.get("response_schema") or (response_format.get("json_schema") or {}).get("schema")
         if schema is not None:
-            body["output_format"] = {"type": "json_schema", "schema": schema}
+            body["output_config"] = {
+                **(body.get("output_config") or {}),
+                "format": {"type": "json_schema", "schema": schema},
+            }
     if params.get("extra_body"):
         body.update(params["extra_body"])
     if stream:

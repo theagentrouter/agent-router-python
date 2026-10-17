@@ -221,6 +221,26 @@ def test_real_gateway_takes_a_rotated_key_without_restarting(real_gateway, monke
     assert local_gateway.running()["pid"] == before["pid"]
 
 
+@needs_aigw
+@needs_xds_port
+def test_real_gateway_reloads_with_an_https_backend(env, monkeypatch):
+    # An HTTPS provider gets a BackendTLSPolicy; a reload must update it, not stop Envoy Gateway on it.
+    monkeypatch.setattr(local_gateway, "PORT", 0)
+    monkeypatch.setattr(local_gateway, "ADMIN_PORT", 0)
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://localhost:1/v1")  # no DNS and no call needed
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+    try:
+        first = local_gateway.ensure("openai/gpt-4o-mini")
+        if not first.get("reload"):
+            pytest.skip("this aigw does not reload on SIGHUP")
+        theagentrouter.route("acme-chat", "openai/gpt-4o-mini", fallbacks=["openai/gpt-4o"])
+        local_gateway.ensure("acme-chat")
+        assert local_gateway.running()["pid"] == first["pid"]
+        assert "exiting on provider runner error" not in (local_gateway.folder() / "aigw.log").read_text()
+    finally:
+        local_gateway.stop()
+
+
 def test_reload_reports_models_that_never_reach_envoy(env, monkeypatch):
     home = local_gateway.folder()
     home.mkdir(parents=True, exist_ok=True)
@@ -375,3 +395,22 @@ def test_claude_thinking_is_sent(env, fake):
     assert fake.requests[-1][2]["max_tokens"] > 8000  # room for the answer after thinking
     theagentrouter.completion(model=MODELS[1], messages=HELLO, thinking=big, max_tokens=9000, api_base=fake.url)
     assert fake.requests[-1][2]["max_tokens"] == 9000
+
+
+def test_claude_5_thinks_adaptively_and_older_claude_within_max_tokens(env, fake):
+    # The model list's reasoning_efforts marks Claude models that refuse a fixed thinking budget.
+    base = dict(messages=HELLO, api_base=fake.url)
+    theagentrouter.completion(model="anthropic/claude-sonnet-5-5", reasoning_effort="high", **base)
+    body = fake.requests[-1][2]
+    assert body["thinking"] == {"type": "adaptive"} and body["output_config"] == {"effort": "high"}
+    theagentrouter.completion(
+        model="anthropic/claude-sonnet-5-5", thinking={"type": "enabled", "budget_tokens": 9}, **base
+    )
+    assert fake.requests[-1][2]["thinking"] == {"type": "adaptive"}
+    with pytest.raises(exceptions.BadRequestError, match="this model takes"):
+        theagentrouter.completion(model="anthropic/claude-sonnet-5-5", reasoning_effort="extreme", **base)
+    theagentrouter.completion(model="anthropic/claude-haiku-4-5", reasoning_effort="high", max_tokens=2048, **base)
+    body = fake.requests[-1][2]
+    assert body["thinking"] == {"type": "enabled", "budget_tokens": 2047} and body["max_tokens"] == 2048
+    with pytest.raises(exceptions.BadRequestError, match="max_tokens above 1024"):
+        theagentrouter.completion(model="anthropic/claude-haiku-4-5", reasoning_effort="low", max_tokens=1000, **base)

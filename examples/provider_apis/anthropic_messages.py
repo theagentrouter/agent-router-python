@@ -18,13 +18,16 @@ for question in ["Can I get a refund after 10 days?", "Can I get a refund after 
         model=model, max_tokens=100, system=system, messages=[{"role": "user", "content": question}]
     )
     usage = resp["usage"]
-    print(f"{usage.get('cache_read_input_tokens') or 0} tokens read from the cache: {resp['content'][0]['text']}")
+    text = next(block["text"] for block in resp["content"] if block["type"] == "text")  # thinking may come first
+    print(f"{usage.get('cache_read_input_tokens') or 0} tokens read from the cache: {text}")
 
-# Thinking: the reply has a thinking block before the text.
+# Thinking: when the model thinks, the reply has a thinking block before the text.
 resp = ar.anthropic.messages.create(
     model=model,
     max_tokens=2048,
-    thinking={"type": "enabled", "budget_tokens": 1024},
+    thinking={
+        "type": "adaptive"
+    },  # Claude 5 decides how much to think; older models take {"type": "enabled", "budget_tokens": N}
     messages=[
         {"role": "user", "content": "A customer paid $120 and returns 2 of 5 equal items. How much is refunded?"}
     ],

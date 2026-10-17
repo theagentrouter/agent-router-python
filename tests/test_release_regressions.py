@@ -76,7 +76,7 @@ def test_configured_gateway_takes_claude_options_as_the_local_gateway_does(fake,
     body = fake.requests[-1][2]
     assert body["thinking"] == {"type": "enabled", "budget_tokens": 4096}
     assert body["max_tokens"] > body["thinking"]["budget_tokens"]
-    assert body["output_format"] == {"type": "json_schema", "schema": schema}
+    assert body["output_config"] == {"format": {"type": "json_schema", "schema": schema}}  # Anthropic's current field
     for name in ("anthropic/claude-sonnet-4-5", "claude-sonnet-4-5"):
         assert {"response_format", "reasoning_effort"} <= set(litellm.get_supported_openai_params(name))
 
@@ -88,7 +88,7 @@ def test_anthropic_accepts_json_object_without_inventing_a_schema(fake):
         api_base=fake.url,
         response_format={"type": "json_object"},
     )
-    assert "output_format" not in fake.requests[-1][2]
+    assert "output_config" not in fake.requests[-1][2] and "output_format" not in fake.requests[-1][2]
 
 
 def test_openai_response_details_and_serialization(fake):

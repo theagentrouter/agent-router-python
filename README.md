@@ -44,7 +44,7 @@ resp = theagentrouter.anthropic.messages.create(
     max_tokens=1024,
     messages=[{"role": "user", "content": "Summarise yesterday's refunds"}],
 )
-print(resp["content"][0]["text"])
+print(next(block["text"] for block in resp["content"] if block["type"] == "text"))  # thinking may come first
 
 vectors = theagentrouter.embedding(model="openai/text-embedding-3-small", input=["refunds", "returns"])
 ```

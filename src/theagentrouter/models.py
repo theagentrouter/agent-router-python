@@ -80,6 +80,8 @@ def _from_catalog_record(record: dict[str, Any]) -> dict[str, Any]:
         "supports_pdf_input": "pdf_support" in caps,
         # LiteLLM's name for the date a model stops being served.
         "deprecation_date": metadata.get("retirement_date") if metadata.get("deprecated") else None,
+        # Effort levels a model takes; for Claude, it also means adaptive thinking instead of a token budget.
+        "reasoning_efforts": metadata.get("reasoning_efforts") or None,
     }
     return {k: v for k, v in entry.items() if v is not None}
 
