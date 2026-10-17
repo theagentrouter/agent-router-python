@@ -3,7 +3,7 @@
 import theagentrouter
 
 resp = theagentrouter.completion(
-    model="anthropic/claude-sonnet-4-5",
+    model="anthropic/claude-sonnet-5-5",
     messages=[{"role": "user", "content": "Say hello in five words."}],
 )
 print(resp.choices[0].message.content)

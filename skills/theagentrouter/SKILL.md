@@ -12,7 +12,7 @@ description: Write Python code that calls AI models with theagentrouter, the Age
 ```python
 import theagentrouter as ar
 
-resp = ar.completion(model="anthropic/claude-sonnet-4-5", messages=[{"role": "user", "content": "hi"}])
+resp = ar.completion(model="anthropic/claude-sonnet-5-5", messages=[{"role": "user", "content": "hi"}])
 resp.choices[0].message.content
 resp._hidden_params["response_cost"]   # US dollars, from the bundled model list
 
@@ -22,7 +22,7 @@ for chunk in ar.completion(model="openai/gpt-4o-mini", messages=messages, stream
 resp = await ar.acompletion(model="openai/gpt-4o-mini", messages=messages)
 vecs = ar.embedding(model="openai/text-embedding-3-small", input=["a", "b"])  # vecs.data[0]["embedding"]
 resp = ar.responses(input="hi", model="openai/gpt-4o-mini")  # OpenAI models only; resp.output_text
-resp = ar.anthropic.messages.create(model="anthropic/claude-sonnet-4-5", max_tokens=256, messages=messages)  # Claude only; resp["content"]
+resp = ar.anthropic.messages.create(model="anthropic/claude-sonnet-5-5", max_tokens=256, messages=messages)  # Claude only; resp["content"]
 n = ar.token_counter(model="openai/gpt-4o-mini", messages=messages)  # the gateway counts OpenAI and Anthropic
 ```
 
@@ -47,7 +47,7 @@ Not arguments on `completion`. Define a route once; the local gateway runs it:
 ar.route(
     "chat",
     primary="openai/gpt-4o",
-    fallbacks=["anthropic/claude-sonnet-4-5"],
+    fallbacks=["anthropic/claude-sonnet-5-5"],
     retry=ar.Retry(attempts=2),
     limit=ar.Limit(60, per="minute"),   # optional; extra requests get RateLimitError
 )

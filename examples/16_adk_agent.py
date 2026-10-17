@@ -24,7 +24,7 @@ def search_refunds(day: str) -> dict:
 async def main() -> None:
     agent = Agent(
         name="refunds",
-        model=LiteLlm(model="anthropic/claude-sonnet-4-5"),
+        model=LiteLlm(model="anthropic/claude-sonnet-5-5"),
         instruction="Answer questions about refunds. Use search_refunds, passing the day as the user wrote it.",
         tools=[search_refunds],
     )

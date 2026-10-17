@@ -12,7 +12,7 @@
 import theagentrouter
 
 resp = theagentrouter.completion(
-    model="anthropic/claude-sonnet-4-5",
+    model="anthropic/claude-sonnet-5-5",
     messages=[{"role": "user", "content": "Summarise yesterday's refunds"}],
 )
 print(resp.choices[0].message.content)
@@ -107,13 +107,13 @@ tools = [{
 }]
 
 messages = [{"role": "user", "content": "How much was refunded yesterday?"}]
-resp = theagentrouter.completion(model="anthropic/claude-sonnet-4-5", messages=messages, tools=tools)
+resp = theagentrouter.completion(model="anthropic/claude-sonnet-5-5", messages=messages, tools=tools)
 call = resp.choices[0].message.tool_calls[0]
 args = json.loads(call.function.arguments)
 
 messages.append(resp.choices[0].message.to_dict())
 messages.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps({"total_usd": 42})})
-final = theagentrouter.completion(model="anthropic/claude-sonnet-4-5", messages=messages, tools=tools)
+final = theagentrouter.completion(model="anthropic/claude-sonnet-5-5", messages=messages, tools=tools)
 print(final.choices[0].message.content)
 ```
 
@@ -133,7 +133,7 @@ LiteLLM's `responses` and `aresponses`, through the gateway's `/v1/responses`. A
 
 ```python
 resp = theagentrouter.anthropic.messages.create(
-    model="anthropic/claude-sonnet-4-5",
+    model="anthropic/claude-sonnet-5-5",
     max_tokens=1024,
     system=[{"type": "text", "text": policy, "cache_control": {"type": "ephemeral"}}],
     thinking={"type": "enabled", "budget_tokens": 1024},
@@ -182,7 +182,7 @@ resp.to_dict()
 | `route` | `local gateway`, `gateway` (one you set) or `api_base` (an endpoint named on the call) |
 | `sent_to` | `http://127.0.0.1:52413/anthropic/v1/messages`: the address the SDK sent the request to, here the local gateway |
 | `llm_provider` | `anthropic` |
-| `model_sent` | `anthropic/claude-sonnet-4-5`: the model name in the request, as you wrote it. The gateway passes the provider its own name |
+| `model_sent` | `anthropic/claude-sonnet-5-5`: the model name in the request, as you wrote it. The gateway passes the provider its own name |
 | `response_cost` | `0.000123`, in US dollars, from the model list. `completion_cost(resp)` gives the same |
 | `served_by`, `route_name` | For a route: the model that answered, and the route's name |
 
@@ -221,7 +221,7 @@ except exceptions.RateLimitError:
 ```python
 theagentrouter.completion_cost(resp)                      # US dollars for this response
 theagentrouter.get_model_info("openai/gpt-4o-mini")       # context window, prices, features
-theagentrouter.supports_function_calling("anthropic/claude-sonnet-4-5")
+theagentrouter.supports_function_calling("anthropic/claude-sonnet-5-5")
 theagentrouter.model_cost["openai/gpt-4o-mini"]           # the raw entry, as in litellm.model_cost
 ```
 
@@ -269,7 +269,7 @@ A function is called as `fn(kwargs, response, start_time, end_time)`; a logger o
 ## Counting tokens
 
 ```python
-theagentrouter.token_counter(model="anthropic/claude-sonnet-4-5", messages=messages, tools=tools)
+theagentrouter.token_counter(model="anthropic/claude-sonnet-5-5", messages=messages, tools=tools)
 theagentrouter.token_counter(model="openai/gpt-4o-mini", text="Summarise yesterday's refunds")
 ```
 
@@ -309,7 +309,7 @@ A gateway you set and the local gateway get the same requests, so code that work
 | `anthropic.messages.create` | `/anthropic/v1/messages` | Anthropic Messages, as you wrote it |
 | `token_counter` | `/anthropic/v1/messages/count_tokens` for Claude, `/v1/responses/input_tokens` for OpenAI | |
 
-The model name is sent as you wrote it: `anthropic/claude-sonnet-4-5` or `claude-sonnet-4-5`. The gateway passes the provider its own name.
+The model name is sent as you wrote it: `anthropic/claude-sonnet-5-5` or `claude-sonnet-5-5`. The gateway passes the provider its own name.
 
 ### A gateway you set
 
@@ -357,7 +357,7 @@ import theagentrouter as ar
 ar.route(
     "chat",
     primary="openai/gpt-4o",
-    fallbacks=["anthropic/claude-sonnet-4-5"],
+    fallbacks=["anthropic/claude-sonnet-5-5"],
     retry=ar.Retry(attempts=2, on=(429, 500, 502, 503, 504)),
 )
 resp = ar.completion(model="chat", messages=messages)

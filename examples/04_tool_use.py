@@ -8,7 +8,7 @@ import json
 
 import theagentrouter
 
-MODEL = "anthropic/claude-sonnet-4-5"
+MODEL = "anthropic/claude-sonnet-5-5"
 tools = [
     {
         "type": "function",

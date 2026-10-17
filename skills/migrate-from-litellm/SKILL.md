@@ -52,7 +52,7 @@ from google.adk.models.lite_llm import LiteLlm  # now gets theagentrouter
 
 ## 4. Fix model names
 
-OpenAI and Anthropic names without a provider (`gpt-4o-mini`, `claude-sonnet-4-5`) work, as in LiteLLM. A bare `gemini-…` name meant Vertex AI in LiteLLM, which the local gateway does not serve yet: tell the user, and if they use the Gemini API, change it to `gemini/…`. With `AGENTROUTER_BASE_URL` set, the gateway takes its own names.
+OpenAI and Anthropic names without a provider (`gpt-4o-mini`, `claude-sonnet-5-5`) work, as in LiteLLM. A bare `gemini-…` name meant Vertex AI in LiteLLM, which the local gateway does not serve yet: tell the user, and if they use the Gemini API, change it to `gemini/…`. With `AGENTROUTER_BASE_URL` set, the gateway takes its own names.
 
 ## 5. Move retries and fallbacks
 
@@ -64,7 +64,7 @@ OpenAI and Anthropic names without a provider (`gpt-4o-mini`, `claude-sonnet-4-5
 ```python
 import theagentrouter as ar
 
-ar.route("chat", primary="openai/gpt-4o", fallbacks=["anthropic/claude-sonnet-4-5"], retry=ar.Retry(attempts=2))
+ar.route("chat", primary="openai/gpt-4o", fallbacks=["anthropic/claude-sonnet-5-5"], retry=ar.Retry(attempts=2))
 ar.completion(model="chat", messages=messages)
 ```
 

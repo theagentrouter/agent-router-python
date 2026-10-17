@@ -17,7 +17,7 @@ if not os.environ.get("AGENTROUTER_BASE_URL"):
     sys.exit("Set AGENTROUTER_BASE_URL to your gateway's address. Without it, calls go to the local gateway instead.")
 
 resp = theagentrouter.completion(
-    model="anthropic/claude-sonnet-4-5", messages=[{"role": "user", "content": "Say hello in five words."}]
+    model="anthropic/claude-sonnet-5-5", messages=[{"role": "user", "content": "Say hello in five words."}]
 )
 print(resp.choices[0].message.content)
 print("answered through:", urlsplit(os.environ["AGENTROUTER_BASE_URL"]).hostname)

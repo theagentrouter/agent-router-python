@@ -27,7 +27,7 @@ export ANTHROPIC_API_KEY=...
 import theagentrouter
 
 resp = theagentrouter.completion(
-    model="anthropic/claude-sonnet-4-5",
+    model="anthropic/claude-sonnet-5-5",
     messages=[{"role": "user", "content": "Summarise yesterday's refunds"}],
 )
 print(resp.choices[0].message.content)
@@ -40,7 +40,7 @@ resp = theagentrouter.responses(model="openai/gpt-4o-mini", input="Summarise yes
 print(resp.output_text)
 
 resp = theagentrouter.anthropic.messages.create(
-    model="anthropic/claude-sonnet-4-5",
+    model="anthropic/claude-sonnet-5-5",
     max_tokens=1024,
     messages=[{"role": "user", "content": "Summarise yesterday's refunds"}],
 )
@@ -88,11 +88,11 @@ A route is a model name you choose, with the models behind it in order. The loca
 ```python
 import theagentrouter as ar
 
-ar.route("chat", primary="openai/gpt-4o", fallbacks=["anthropic/claude-sonnet-4-5"], retry=ar.Retry(attempts=2))
+ar.route("chat", primary="openai/gpt-4o", fallbacks=["anthropic/claude-sonnet-5-5"], retry=ar.Retry(attempts=2))
 ar.completion(model="chat", messages=[{"role": "user", "content": "hi"}])
 ```
 
-Here a call to `chat` goes to `openai/gpt-4o`. If it cannot be reached or answers with 429, 500, 502, 503 or 504, the gateway retries it up to 2 more times, then tries `anthropic/claude-sonnet-4-5` the same way. Other errors, such as 401, are not retried.
+Here a call to `chat` goes to `openai/gpt-4o`. If it cannot be reached or answers with 429, 500, 502, 503 or 504, the gateway retries it up to 2 more times, then tries `anthropic/claude-sonnet-5-5` the same way. Other errors, such as 401, are not retried.
 
 - A route can also limit requests: `limit=ar.Limit(60, per="minute")` lets 60 requests a minute through and answers the rest with a `RateLimitError`.
 - Routes are saved in `~/.agentrouter/routes.json`, so every program on this computer can use them.

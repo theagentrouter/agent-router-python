@@ -23,7 +23,7 @@ def main() -> None:
     agent = Agent(
         name="refunds",
         instructions="Answer questions about refunds. Use search_refunds, passing the day as the user wrote it.",
-        model=LitellmModel(model="anthropic/claude-sonnet-4-5"),
+        model=LitellmModel(model="anthropic/claude-sonnet-5-5"),
         tools=[search_refunds],
     )
     result = Runner.run_sync(agent, "How much was refunded yesterday?")

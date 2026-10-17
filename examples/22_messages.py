@@ -7,7 +7,7 @@ ANTHROPIC_API_KEY=... python examples/22_messages.py
 
 import theagentrouter as ar
 
-model = "anthropic/claude-sonnet-4-5"
+model = "anthropic/claude-sonnet-5-5"
 
 # Prompt caching: mark a long, fixed part of the prompt with cache_control.
 # Anthropic caches prompts of 1,024 tokens or more; the second call reads the cache.
