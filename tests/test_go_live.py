@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import socket
+import stat
 import subprocess
 import threading
 import time
@@ -160,7 +161,9 @@ def test_a_route_change_reloads_a_gateway_that_can(env, monkeypatch):
     }
     monkeypatch.setattr(local_gateway, "running", lambda: state)
     monkeypatch.setattr(
-        local_gateway, "_reload", lambda s, models, routes: calls.append(("reload", sorted(routes))) or s
+        local_gateway,
+        "_reload",
+        lambda s, models, routes, providers=None: calls.append(("reload", sorted(routes))) or s,
     )
     monkeypatch.setattr(local_gateway, "stop", lambda *a, **k: calls.append(("stop",)))
     monkeypatch.setattr(local_gateway, "_start", lambda *a, **k: calls.append(("start",)) or state)
@@ -171,6 +174,51 @@ def test_a_route_change_reloads_a_gateway_that_can(env, monkeypatch):
     state["reload"] = False
     local_gateway.ensure("acme-chat")
     assert calls[-2:] == [("stop",), ("start",)]
+
+
+# ---- a rotated provider key -----------------------------------------------------------------------
+
+
+def test_local_config_reads_api_keys_from_private_files(env, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "acme-openai-key")
+    config = local_gateway.config_yaml(["openai"], dict(os.environ), port=1975, models=[])
+    assert "${OPENAI_API_KEY}" not in config and "acme-openai-key" not in config
+    assert f"substitution.aigw.run/file/apiKey: {json.dumps(str(local_gateway._key_file('OPENAI_API_KEY')))}" in config
+    assert "${OPENAI_API_KEY}" in local_gateway.export_config(providers=["openai"])  # a server keeps its environment
+    local_gateway._write_keys(["openai"], dict(os.environ))
+    key = local_gateway._key_file("OPENAI_API_KEY")
+    assert key.read_text() == "acme-openai-key" and stat.S_IMODE(key.stat().st_mode) == 0o600
+    assert stat.S_IMODE(key.parent.stat().st_mode) == 0o700
+
+
+def test_a_changed_key_says_how_to_load_it(env, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "acme-old")
+    state = {
+        "providers": ["openai"],
+        "credential_fingerprints": local_gateway._credential_fingerprints(["openai"], dict(os.environ)),
+    }
+    monkeypatch.setenv("OPENAI_API_KEY", "acme-new")
+    with pytest.raises(exceptions.AuthenticationError, match="local_gateway.stop"):
+        local_gateway.check_credentials(state)
+    with pytest.raises(exceptions.AuthenticationError, match=r"local_gateway.reload_keys\(\)"):
+        local_gateway.check_credentials({**state, "reload": True})
+
+
+@needs_aigw
+@needs_xds_port
+def test_real_gateway_takes_a_rotated_key_without_restarting(real_gateway, monkeypatch):
+    theagentrouter.completion(model="acme/acme-large", messages=HELLO)
+    before = local_gateway.running()
+    if not before.get("reload"):
+        pytest.skip("this aigw does not reload on SIGHUP")
+    assert real_gateway.requests[-1][1]["authorization"] == "Bearer acme-secret"
+    monkeypatch.setenv("ACME_KEY", "acme-rotated")
+    with pytest.raises(exceptions.AuthenticationError, match="reload_keys"):
+        theagentrouter.completion(model="acme/acme-large", messages=HELLO)
+    local_gateway.reload_keys()
+    theagentrouter.completion(model="acme/acme-large", messages=HELLO)
+    assert real_gateway.requests[-1][1]["authorization"] == "Bearer acme-rotated"
+    assert local_gateway.running()["pid"] == before["pid"]
 
 
 def test_reload_reports_models_that_never_reach_envoy(env, monkeypatch):

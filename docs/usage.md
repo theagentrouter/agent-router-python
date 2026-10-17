@@ -330,15 +330,15 @@ theagentrouter: started the local gateway on http://127.0.0.1:52413 (providers f
 
 The port changes from start to start, so another Agent Router gateway on 1975 (your own `aigw run`, for example) never blocks it. Every program using the SDK finds the running gateway by itself; to reach it from another tool, read the port from that line or from `port` in `~/.agentrouter/local-gateway/state.json`. Two Agent Router gateways still cannot run on one computer: `aigw` keeps two internal ports fixed (1061 and 18000), so with another Agent Router gateway running the SDK says so and asks you to stop it or set `AGENTROUTER_BASE_URL`.
 
-- The SDK sets the gateway up from the provider keys in your environment. The gateway holds the keys; its config file holds only references such as `${OPENAI_API_KEY}`.
+- The SDK sets the gateway up from the provider keys in your environment. The gateway holds the keys: each is in a private file it reads (mode 0600), never in its config file.
 - It starts with a rule for every model in the SDK's bundled model list for those providers. Register a custom model with `register_model` before adding it to a running gateway. An unregistered model name raises `NotFoundError` and leaves the existing process running.
-- A new registered model reloads a same-version gateway without interrupting other programs; a new provider restarts it. The caller must have credentials for every provider already running; otherwise the SDK raises and leaves the process running. It cannot merge credentials held only by another process.
+- A new registered model, or a new provider whose key the caller has, reloads a same-version gateway without interrupting other programs. A new Bedrock provider restarts it, and then the caller must have credentials for every provider already running; otherwise the SDK raises and leaves the process running.
 - `AGENTROUTER_AUTOSTART=0` stops the SDK from starting it.
 - A gateway set with `AGENTROUTER_BASE_URL` always wins, and then the SDK starts nothing.
 - Its files, including its log `aigw.log`, are in `~/.agentrouter/local-gateway/`.
 - The very first start downloads Envoy (about 100 MB, into `~/.local/share/aigw`), so it needs the internet and can take a minute.
 - It keeps running after your program ends. To stop it: `python -c "from theagentrouter import local_gateway; local_gateway.stop()"`. The next call starts it again.
-- After an upgrade, existing gateway rules keep working. Stop the gateway explicitly when other programs finish to load the new version. Rotated credentials are reported before a call; stop and retry to load them. Automatic key reload is not implemented.
+- After an upgrade, existing gateway rules keep working. Stop the gateway explicitly when other programs finish to load the new version. After you rotate a provider key, calls from a program with the new key raise until it runs `theagentrouter.local_gateway.reload_keys()`, which gives the running gateway that program's keys without interrupting others.
 
 | Provider | Set in the environment |
 |---|---|

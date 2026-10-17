@@ -397,15 +397,24 @@ spec:
   {field}:
     secretRef:
       name: {name}-key"""
+            if local:
+                # A file, so a reload can give the running gateway a rotated key.
+                source = f"""  annotations:
+    substitution.aigw.run/file/apiKey: {json.dumps(str(_key_file(spec["keys"][0])))}
+type: Opaque
+stringData:
+  apiKey: file"""
+            else:
+                source = f"""type: Opaque
+stringData:
+  apiKey: ${{{spec["keys"][0]}}}"""
             docs.append(
                 f"""apiVersion: v1
 kind: Secret
 metadata:
   name: {name}-key
   namespace: default
-type: Opaque
-stringData:
-  apiKey: ${{{spec["keys"][0]}}}"""
+{source}"""
             )
         docs.append(
             f"""apiVersion: aigateway.envoyproxy.io/v1beta1
@@ -770,6 +779,27 @@ def _write_state(state: dict) -> None:
         Path(name).unlink(missing_ok=True)
 
 
+def _key_file(variable: str) -> Path:
+    return folder() / "keys" / variable
+
+
+def _write_keys(providers: list[str], env: dict[str, str]) -> None:
+    """Each provider's API key from this environment, in a private file aigw reads on start and on reload."""
+    directory = folder() / "keys"
+    _private_dir(directory)
+    for provider in providers:
+        spec = PROVIDERS.get(provider, {})
+        if spec.get("schema") == "AWSBedrock" or not spec.get("keys") or not env.get(spec["keys"][0]):
+            continue
+        descriptor, name = tempfile.mkstemp(prefix=".key-", dir=directory)
+        try:
+            with os.fdopen(descriptor, "w") as handle:
+                handle.write(env[spec["keys"][0]])
+            os.replace(name, directory / spec["keys"][0])
+        finally:
+            Path(name).unlink(missing_ok=True)
+
+
 def _credential_fingerprints(providers: list[str], env: dict[str, str]) -> dict[str, str]:
     fingerprints = {}
     for provider in providers:
@@ -795,10 +825,12 @@ def check_credentials(state: dict) -> None:
     current = _credential_fingerprints(state.get("providers", []), dict(os.environ))
     previous = state.get("credential_fingerprints", {})
     if any(provider in previous and previous[provider] != value for provider, value in current.items()):
-        raise exceptions.AuthenticationError(
-            "provider credentials changed since the local gateway started; call local_gateway.stop() "
-            "when other programs have finished, then retry to load the new keys"
+        fix = (
+            "call local_gateway.reload_keys() to give the running gateway this environment's keys"
+            if state.get("reload")
+            else "call local_gateway.stop() when other programs have finished, then retry to load the new keys"
         )
+        raise exceptions.AuthenticationError(f"provider credentials changed since the local gateway started; {fix}")
 
 
 def _listening(port: int, timeout: float = 0.5) -> bool:
@@ -931,7 +963,7 @@ def stop(state: dict | None = None, timeout: float = 15.0) -> None:
     if not _stopped(pid):
         raise exceptions.Timeout("the local gateway did not stop; its state and key files were retained")
     (folder() / "state.json").unlink(missing_ok=True)
-    for path in (folder() / "aigw-state", _runtime_dir()):
+    for path in (folder() / "aigw-state", folder() / "keys", _runtime_dir()):
         if path.exists():
             _private_dir(path)
             shutil.rmtree(path)
@@ -960,6 +992,7 @@ def _start(providers: list[str], models: list[str], routes: dict | None = None) 
         AIGW_STATE_HOME=str(home / "aigw-state"),
         AIGW_RUNTIME_DIR=str(runtime),
     )
+    _write_keys(providers, env)
     log_path = home / "aigw.log"
     for attempt in range(START_ATTEMPTS):
         port, admin_port = PORT or _free_port(), ADMIN_PORT or _free_port()
@@ -1090,19 +1123,23 @@ def _reload_results(log_path: Path) -> list[str]:
     return [line for line in log_path.read_text(errors="replace").splitlines() if "configuration reload" in line]
 
 
-def _reload(state: dict, models: list[str], routes: dict) -> dict:
+def _reload(state: dict, models: list[str], routes: dict, providers: list[str] | None = None) -> dict:
     """Give the running gateway a new config with SIGHUP, so other programs' calls, streams included, continue.
 
-    aigw keeps the environment it started with, so the config is written from the settings recorded at start,
-    and only models and routes of providers it already runs can be added this way.
+    API keys are read from their files, so ``providers`` can add one whose key file was just written. Other
+    settings come from the ones recorded at start; for an added provider, from this environment.
     """
     from . import routes as routes_mod
 
+    providers = sorted(providers or state["providers"])
+    config_env = dict(state.get("config_env", {}))
+    for provider in set(providers) - set(state["providers"]):  # an added provider's address, from this environment
+        variable = f"{provider.upper()}_BASE_URL"
+        if os.environ.get(variable):
+            config_env[variable] = os.environ[variable]
     home = folder()
     log_path = home / "aigw.log"
-    (home / "config.yaml").write_text(
-        config_yaml(state["providers"], state.get("config_env", {}), state["port"], models, routes)
-    )
+    (home / "config.yaml").write_text(config_yaml(providers, config_env, state["port"], models, routes))
     before = len(_reload_results(log_path))
     os.kill(int(state["pid"]), signal.SIGHUP)
     deadline = time.monotonic() + RELOAD_TIMEOUT
@@ -1131,12 +1168,37 @@ def _reload(state: dict, models: list[str], routes: dict) -> dict:
         raise exceptions.APIConnectionError(f"the local gateway stopped after reloading its config (log: {log_path})")
     state = {
         **state,
+        "providers": providers,
+        "config_env": config_env,
         "models": models,
         "routes": sorted(routes),
         "routes_fingerprint": routes_mod.fingerprint(routes),
     }
     _write_state(state)
     return state
+
+
+def reload_keys() -> None:
+    """Give the running local gateway this environment's provider keys, without stopping it.
+
+    After a provider key is rotated, a program that has the new key is refused until this runs. Other
+    programs' calls continue. Providers whose key this environment lacks keep the key they have.
+    """
+    from . import routes as routes_mod
+
+    with _lock():
+        state = running()
+        if not state:
+            return
+        if not state.get("reload"):
+            raise exceptions.BadRequestError(
+                "this local gateway cannot reload; call local_gateway.stop() when other programs have finished"
+            )
+        env = dict(os.environ)
+        providers = [p for p in state["providers"] if PROVIDERS.get(p, {}).get("schema") != "AWSBedrock"]
+        _write_keys(providers, env)
+        fingerprints = {**state.get("credential_fingerprints", {}), **_credential_fingerprints(providers, env)}
+        _reload({**state, "credential_fingerprints": fingerprints}, state["models"], routes_mod.list_routes())
 
 
 def ensure(model: str) -> dict:
@@ -1161,11 +1223,20 @@ def ensure(model: str) -> dict:
         if model not in current:
             needed.add(model.split("/", 1)[0])
         if state and state.get("reload") and state.get("versions") == versions():
-            running_providers = state.get("providers", [])
-            if needed <= set(running_providers):
+            env = dict(os.environ)
+            added = sorted(needed - set(state.get("providers", [])))
+            if set(added) <= set(available(env)) and "bedrock" not in added:
+                _write_keys(added, env)
+                providers = sorted(set(state["providers"]) | set(added))
+                fingerprints = {**_credential_fingerprints(added, env), **state.get("credential_fingerprints", {})}
                 seen = set(state.get("models", []))
                 extra = {model} if model not in current else set()
-                return _reload(state, routed_models(running_providers, seen | extra), current)
+                return _reload(
+                    {**state, "credential_fingerprints": fingerprints},
+                    routed_models(providers, seen | extra),
+                    current,
+                    providers,
+                )
         if state and state.get("versions") != versions():
             raise exceptions.BadRequestError(
                 "the local gateway was started by another SDK version; stop it explicitly when other programs "

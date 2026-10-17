@@ -173,7 +173,7 @@ def test_anthropic_in_a_route_uses_its_openai_compatible_endpoint(env, installed
     assert 'modelNameOverride: "claude-sonnet-4-5"' in config
     backend = config.split("name: anthropic-openai\n  namespace: default\nspec:")[1].split("---")[0]
     assert "hostname: api.anthropic.com" in backend
-    assert "apiKey: ${ANTHROPIC_API_KEY}" in config and "sk-ant-test" not in config
+    assert str(local_gateway._key_file("ANTHROPIC_API_KEY")) in config and "sk-ant-test" not in config
 
 
 def test_a_route_name_takes_over_a_model_rule(env, installed):

@@ -97,7 +97,8 @@ def test_config_holds_references_not_keys(env, monkeypatch):
     models = ["openai/gpt-4o-mini", "bedrock/anthropic.claude-sonnet-4-5", "anthropic/claude-sonnet-4-5"]
     config = local_gateway.config_yaml(["anthropic", "bedrock", "openai"], dict(os.environ), port=1975, models=models)
     assert "sk-test" not in config and "sk-ant-test" not in config
-    assert "apiKey: ${OPENAI_API_KEY}" in config and "apiKey: ${ANTHROPIC_API_KEY}" in config
+    for variable in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY"):  # aigw reads each key from a private file
+        assert f"substitution.aigw.run/file/apiKey: {json.dumps(str(local_gateway._key_file(variable)))}" in config
     assert "hostname: bedrock-runtime.us-west-2.amazonaws.com" in config
     assert "type: AWSCredentials" in config and "region: us-west-2" in config
     assert "type: AnthropicAPIKey" in config
@@ -392,14 +393,15 @@ def test_real_gateway_end_to_end(real_gateway, env, capsys, monkeypatch):
     assert out.stdout.strip() == "local gateway echo: hi", out.stderr
     assert local_gateway.running()["pid"] == first["pid"]
 
-    # 5. A new provider's key restarts the gateway with it.
+    # 5. A new provider's key adds it: by reload, or by a restart if the gateway cannot reload.
     monkeypatch.setenv("ACME2_KEY", "acme2-secret")
     monkeypatch.setitem(theagentrouter.model_cost, "acme2/acme-small", {})
     r = theagentrouter.completion(model="acme2/acme-small", messages=HELLO)
     assert r.choices[0].message.content == "echo: refunds yesterday"
     assert fake.requests[-1][1]["authorization"] == "Bearer acme2-secret"
     second = local_gateway.running()
-    assert second["pid"] != first["pid"] and second["providers"] == ["acme", "acme2", "anthropic"]
+    assert (second["pid"] == first["pid"]) == bool(first.get("reload"))
+    assert second["providers"] == ["acme", "acme2", "anthropic"]
 
     # 6. A model the gateway has no rule for yet gets one: the gateway reloads with it, or restarts if it cannot.
     monkeypatch.setitem(theagentrouter.model_cost, "acme/acme-other", {})
