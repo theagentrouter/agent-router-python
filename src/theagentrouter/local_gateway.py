@@ -42,7 +42,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import exceptions
+from . import _files, exceptions
 
 PACKAGE = "theagentrouter_local_gateway"
 # The local gateway comes with `pip install theagentrouter` on the platforms it is built for.
@@ -873,14 +873,23 @@ def _busy_internal() -> None:
         )
 
 
+# When this process last found each gateway (pid, port) listening; a call does not probe again within this time.
+_listening_seen: dict[tuple[int, int], float] = {}
+LISTENING_RECHECK = 30.0
+
+
 def running() -> dict | None:
     """The running local gateway's state, or None. Any program on the computer finds the same one."""
-    try:
-        state = json.loads((folder() / "state.json").read_text())
-    except (OSError, ValueError):
+    state = _files.read_json(folder() / "state.json")
+    if not isinstance(state, dict) or state.get("starting") or not _alive(int(state.get("pid", 0))):
         return None
-    if state.get("starting") or not _alive(int(state.get("pid", 0))) or not _listening(int(state.get("port", PORT))):
-        return None
+    key = (int(state["pid"]), int(state.get("port", PORT)))
+    seen = _listening_seen.get(key)
+    if seen is None or time.monotonic() - seen > LISTENING_RECHECK:
+        if not _listening(key[1]):
+            _listening_seen.pop(key, None)
+            return None
+        _listening_seen[key] = time.monotonic()
     return state
 
 

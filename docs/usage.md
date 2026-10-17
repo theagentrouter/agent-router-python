@@ -69,7 +69,7 @@ These control the call itself:
 | `extra_body` | More fields in the request body, for provider-specific options |
 | `mock_response` | Answer on this computer without calling anything, for tests ([Tests](#tests)) |
 
-`num_retries` (or `max_retries`) sets bounded request retries for connection failures, timeouts, 408, 429 and 5xx. It defaults to zero; authentication and budget errors are not retried. Completion streams retry only before yielding their first chunk. A route's Retry is separate and runs in the gateway, so enabling both can multiply attempts. Native Messages byte-stream setup does not yet use the common SDK retry loop. Other unknown completion arguments warn and are not sent; see [Coming from LiteLLM](coming-from-litellm.md#ignored-with-a-warning).
+`num_retries` (or `max_retries`) sets bounded request retries for connection failures, timeouts, 408, 429 and 5xx. It defaults to zero; authentication and budget errors are not retried. Streams, completion and native Messages alike, retry only before yielding their first chunk. A route's Retry is separate and runs in the gateway, so enabling both can multiply attempts. Other unknown completion arguments warn and are not sent; see [Coming from LiteLLM](coming-from-litellm.md#ignored-with-a-warning).
 
 ## Streaming
 

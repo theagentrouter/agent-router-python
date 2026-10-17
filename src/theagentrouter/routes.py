@@ -23,7 +23,7 @@ from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from decimal import Decimal, InvalidOperation
 
-from . import exceptions
+from . import _files, exceptions
 
 RETRY_ON = (429, 500, 502, 503, 504)
 LIMIT_PER = ("second", "minute", "hour", "day")
@@ -133,9 +133,8 @@ def _path():
 
 
 def _load() -> dict[str, Route]:
-    try:
-        raw = json.loads(_path().read_text())
-    except (OSError, ValueError):
+    raw = _files.read_json(_path())
+    if not isinstance(raw, dict):
         return {}
     out = {}
     for name, r in raw.items():

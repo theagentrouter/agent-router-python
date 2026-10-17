@@ -10,6 +10,7 @@ in the OpenAI format.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
@@ -17,7 +18,7 @@ import httpx
 
 from . import _http, anthropic_format, exceptions, local_gateway, models, routing
 from .responses import _wrap_value
-from .transport import _asend, _raise_for, _send, _timeout, _wrap
+from .transport import _asend, _raise_for, _retries, _retry_delay, _retryable, _send, _timeout, _wrap
 
 # Messages arguments sent to the gateway as they are; the rest of **kwargs controls the call.
 _PASSED = (
@@ -135,18 +136,57 @@ def _events(buffer: bytes) -> tuple[list[bytes], bytes]:
     return out, buffer
 
 
-def _stream(target: routing.Target, headers: dict, url: str, body: dict, model: str, params: dict) -> Iterator[bytes]:
+def _open(target: routing.Target, headers: dict, url: str, body: dict, model: str, params: dict) -> httpx.Response:
+    """The stream's response, with the retries num_retries asks for. Once events flow, nothing is replayed."""
     client = _http.client(url)
-    try:
-        r = client.send(
-            client.build_request("POST", url, json=body, headers=headers, timeout=_timeout(params)), stream=True
-        )
-    except httpx.HTTPError as e:
-        raise _wrap(e, target, model) from e
-    if r.status_code >= 300:
-        text = r.read().decode(errors="replace")
-        r.close()
-        _raise_for(r, text, target, model)
+    for attempt in range(_retries(params) + 1):
+        try:
+            try:
+                r = client.send(
+                    client.build_request("POST", url, json=body, headers=headers, timeout=_timeout(params)),
+                    stream=True,
+                )
+            except httpx.HTTPError as e:
+                raise _wrap(e, target, model) from e
+            if r.status_code >= 300:
+                text = r.read().decode(errors="replace")
+                r.close()
+                _raise_for(r, text, target, model)
+            return r
+        except exceptions.APIError as error:
+            if attempt == _retries(params) or not _retryable(error):
+                raise
+            time.sleep(_retry_delay(error, attempt))
+    raise AssertionError("unreachable")
+
+
+async def _aopen(
+    target: routing.Target, headers: dict, url: str, body: dict, model: str, params: dict
+) -> httpx.Response:
+    client = _http.async_client(url)
+    for attempt in range(_retries(params) + 1):
+        try:
+            try:
+                r = await client.send(
+                    client.build_request("POST", url, json=body, headers=headers, timeout=_timeout(params)),
+                    stream=True,
+                )
+            except httpx.HTTPError as e:
+                raise _wrap(e, target, model) from e
+            if r.status_code >= 300:
+                text = (await r.aread()).decode(errors="replace")
+                await r.aclose()
+                _raise_for(r, text, target, model)
+            return r
+        except exceptions.APIError as error:
+            if attempt == _retries(params) or not _retryable(error):
+                raise
+            await asyncio.sleep(_retry_delay(error, attempt))
+    raise AssertionError("unreachable")
+
+
+def _stream(target: routing.Target, headers: dict, url: str, body: dict, model: str, params: dict) -> Iterator[bytes]:
+    r = _open(target, headers, url, body, model, params)
     if "text/event-stream" not in r.headers.get("content-type", "").lower():
         r.close()
         raise exceptions.APIResponseValidationError("Expected a text/event-stream response", model=model, response=r)
@@ -170,17 +210,7 @@ def _stream(target: routing.Target, headers: dict, url: str, body: dict, model: 
 async def _astream(
     target: routing.Target, headers: dict, url: str, body: dict, model: str, params: dict
 ) -> AsyncIterator[bytes]:
-    client = _http.async_client(url)
-    try:
-        r = await client.send(
-            client.build_request("POST", url, json=body, headers=headers, timeout=_timeout(params)), stream=True
-        )
-    except httpx.HTTPError as e:
-        raise _wrap(e, target, model) from e
-    if r.status_code >= 300:
-        text = (await r.aread()).decode(errors="replace")
-        await r.aclose()
-        _raise_for(r, text, target, model)
+    r = await _aopen(target, headers, url, body, model, params)
     if "text/event-stream" not in r.headers.get("content-type", "").lower():
         await r.aclose()
         raise exceptions.APIResponseValidationError("Expected a text/event-stream response", model=model, response=r)

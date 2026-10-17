@@ -164,3 +164,60 @@ def test_response_json_serialization_round_trips(fake):
 
 def test_timeout_zero_is_not_replaced_with_ten_minutes():
     assert transport._timeout({"timeout": 0}).read == 0
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_native_messages_retry_like_completions(fake, stream):
+    try:
+        r = ar.anthropic.messages.create(
+            model="anthropic/err-429", max_tokens=16, stream=stream, messages=HELLO, api_base=fake.url, num_retries=2
+        )
+        if stream:
+            list(r)
+    except exceptions.RateLimitError:
+        pass
+    assert len(fake.requests) == 3
+
+
+async def test_async_native_messages_stream_retries(fake):
+    with pytest.raises(exceptions.RateLimitError):
+        stream = await ar.anthropic.messages.acreate(
+            model="anthropic/err-429", max_tokens=16, stream=True, messages=HELLO, api_base=fake.url, num_retries=1
+        )
+        async for _ in stream:
+            pass
+    assert len(fake.requests) == 2
+
+
+def test_per_call_files_are_read_again_only_when_they_change(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from theagentrouter import _files
+
+    path = tmp_path / "settings.json"
+    path.write_text('{"a": 1}')
+    opened = []
+    read = Path.read_text
+    monkeypatch.setattr(Path, "read_text", lambda self, *a, **k: opened.append(self) or read(self, *a, **k))
+    assert _files.read_json(path) == {"a": 1} and _files.read_json(path) == {"a": 1}
+    assert len(opened) == 1
+    path.write_text('{"a": 22}')
+    assert _files.read_json(path) == {"a": 22} and len(opened) == 2
+    _files.read_json(path)["a"] = 3  # each caller gets its own copy
+    assert _files.read_json(path) == {"a": 22}
+    path.unlink()
+    assert _files.read_json(path) is None
+
+
+def test_running_gateway_is_probed_once_per_interval(env, monkeypatch):
+    from theagentrouter import local_gateway
+
+    local_gateway._write_state({"pid": 4242, "port": 9})
+    probes = []
+    monkeypatch.setattr(local_gateway, "_alive", lambda pid: True)
+    monkeypatch.setattr(local_gateway, "_listening", lambda port, timeout=0.5: probes.append(port) or True)
+    monkeypatch.setattr(local_gateway, "_listening_seen", {})
+    assert local_gateway.running() and local_gateway.running()
+    assert probes == [9]
+    monkeypatch.setattr(local_gateway, "LISTENING_RECHECK", 0)
+    assert local_gateway.running() and probes == [9, 9]

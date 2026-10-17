@@ -20,7 +20,6 @@ the environment when it starts. A format belongs in the SDK only if Agent Router
 
 from __future__ import annotations
 
-import json
 import os
 import warnings
 from dataclasses import dataclass, field
@@ -28,7 +27,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from . import exceptions, local_gateway
+from . import _files, exceptions, local_gateway
 
 OPENAI = "openai"  # Chat Completions
 ANTHROPIC = "anthropic"  # Messages
@@ -78,9 +77,8 @@ def settings() -> dict[str, str]:
     the file's gateway: when the environment names another gateway, they are not used, so a stored
     key is never sent to a gateway it was not made for.
     """
-    try:
-        stored = json.loads((home() / "config.json").read_text())
-    except (OSError, ValueError):
+    stored = _files.read_json(home() / "config.json")
+    if not isinstance(stored, dict):
         stored = {}
     named = os.environ.get("AGENTROUTER_BASE_URL")
     if named and named.rstrip("/") != str(stored.get("base_url") or "").rstrip("/"):
