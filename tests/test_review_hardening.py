@@ -221,3 +221,13 @@ def test_running_gateway_is_probed_once_per_interval(env, monkeypatch):
     assert probes == [9]
     monkeypatch.setattr(local_gateway, "LISTENING_RECHECK", 0)
     assert local_gateway.running() and probes == [9, 9]
+
+
+def test_a_relative_or_tilde_home_becomes_absolute(monkeypatch, tmp_path):
+    from pathlib import Path
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("AGENTROUTER_HOME", "acme-home")
+    assert routing.home() == tmp_path.absolute() / "acme-home"
+    monkeypatch.setenv("AGENTROUTER_HOME", "~/acme-home")
+    assert routing.home() == Path.home() / "acme-home"

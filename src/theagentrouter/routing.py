@@ -66,7 +66,8 @@ def _format(provider: str) -> str:
 
 
 def home() -> Path:
-    return Path(os.environ.get("AGENTROUTER_HOME") or Path.home() / ".agentrouter")
+    # Absolute, so aigw, which runs in that folder, finds the same paths.
+    return Path(os.environ.get("AGENTROUTER_HOME") or Path.home() / ".agentrouter").expanduser().absolute()
 
 
 def settings() -> dict[str, str]:
