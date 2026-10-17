@@ -6,7 +6,7 @@ OPENAI_API_KEY=... python examples/provider_apis/openai_responses.py
 import theagentrouter as ar
 
 first = ar.responses(
-    model="openai/gpt-4o-mini",
+    model="openai/gpt-6-luna",
     instructions="Answer in one sentence.",
     input="What is a refund?",
 )
@@ -14,7 +14,7 @@ print(first.output_text)
 
 # previous_response_id continues the conversation; the provider keeps the earlier turns.
 second = ar.responses(
-    model="openai/gpt-4o-mini",
+    model="openai/gpt-6-luna",
     input="And how is it different from a return?",
     previous_response_id=first.id,
 )

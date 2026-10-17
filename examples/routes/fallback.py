@@ -13,7 +13,7 @@ import theagentrouter as ar
 ar.route(
     "chat",
     primary="openai/gpt-does-not-exist",
-    fallbacks=["anthropic/claude-haiku-4-5"],
+    fallbacks=["anthropic/claude-haiku-5-5"],
     retry=ar.Retry(attempts=0, on=(404, 429, 500, 502, 503, 504)),
 )
 resp = ar.completion(model="chat", messages=[{"role": "user", "content": "Say hello."}])

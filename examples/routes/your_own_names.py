@@ -9,7 +9,7 @@ Needs OPENAI_API_KEY and ANTHROPIC_API_KEY.
 
 import theagentrouter as ar
 
-ar.route("fast", primary="openai/gpt-4o-mini")
+ar.route("fast", primary="openai/gpt-5.4-mini")
 ar.route("smart", primary="anthropic/claude-sonnet-5-5")
 print("fast and smart are saved:", {"fast", "smart"} <= set(ar.list_routes()))
 

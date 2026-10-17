@@ -18,7 +18,7 @@ for sdk in ${SDK:-litellm theagentrouter}; do
     python=$PWD/.venv-apps-$sdk/bin/python
     echo "== litellm-assistant on $sdk"
     (cd apps/litellm-assistant && "$python" examples/live.py) || status=1
-    for model in openai/gpt-4.1-mini anthropic/claude-sonnet-4-5-20250929; do
+    for model in openai/gpt-5.4 anthropic/claude-sonnet-5-5; do
         for streaming in false true; do
             echo "== adk-support-agent on $sdk, $model, streaming=$streaming"
             log=$(mktemp)

@@ -10,7 +10,7 @@ from theagentrouter.compat import litellm  # was: import litellm
 router = litellm.Router(
     model_list=[
         {"model_name": "router-chat", "litellm_params": {"model": "openai/gpt-does-not-exist"}},
-        {"model_name": "router-backup", "litellm_params": {"model": "anthropic/claude-haiku-4-5"}},
+        {"model_name": "router-backup", "litellm_params": {"model": "anthropic/claude-haiku-5-5"}},
     ],
     fallbacks=[{"router-chat": ["router-backup"]}],
     num_retries=1,

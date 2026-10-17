@@ -5,7 +5,7 @@ OPENAI_API_KEY=... python examples/from_litellm/cost_and_model_info.py
 
 import theagentrouter
 
-MODEL = "openai/gpt-4o-mini"
+MODEL = "openai/gpt-5.4-mini"
 info = theagentrouter.get_model_info(MODEL)
 print(f"{MODEL}: {info['max_input_tokens']} input tokens, tools: {theagentrouter.supports_function_calling(MODEL)}")
 

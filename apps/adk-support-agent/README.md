@@ -13,7 +13,7 @@ cp .env.example .env                         # add your keys
 python examples/support_agent.py
 ```
 
-Set `ADK_MODEL` to choose a model (`openai/gpt-4.1-mini`, `anthropic/claude-sonnet-4-5-20250929`) and `ADK_STREAMING=true` for ADK's streaming mode. Reports and the check results go to `outputs/<provider>/`; ticket notes are kept in `data/tickets.db`.
+Set `ADK_MODEL` to choose a model (`openai/gpt-5.4`, `anthropic/claude-sonnet-5-5`) and `ADK_STREAMING=true` for ADK's streaming mode. Reports and the check results go to `outputs/<provider>/`; ticket notes are kept in `data/tickets.db`.
 
 ## KB and MCP
 

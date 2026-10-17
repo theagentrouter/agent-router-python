@@ -49,7 +49,12 @@ PASSTHROUGH = (
 
 
 def build_body(
-    model: str, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None, stream: bool, params: dict[str, Any]
+    model: str,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None,
+    stream: bool,
+    params: dict[str, Any],
+    provider: str | None = None,
 ) -> dict[str, Any]:
     # thinking_blocks carry Anthropic signatures; the OpenAI format has no place for them.
     body: dict[str, Any] = {
@@ -61,6 +66,9 @@ def build_body(
     for key in PASSTHROUGH:
         if params.get(key) is not None:
             body[key] = params[key]
+    if provider == "openai" and "max_tokens" in body and "max_completion_tokens" not in body:
+        # OpenAI replaced max_tokens with max_completion_tokens, and its newer models refuse max_tokens.
+        body["max_completion_tokens"] = body.pop("max_tokens")
     if params.get("extra_body"):
         body.update(params["extra_body"])
     if stream:

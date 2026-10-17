@@ -44,7 +44,7 @@ async def main():
         litellm_installed = True
     if sdk == "theagentrouter" and litellm_installed:
         raise RuntimeError("The migrated example must run without LiteLLM installed")
-    model = os.getenv("ADK_MODEL", "openai/gpt-4.1-mini")
+    model = os.getenv("ADK_MODEL", "openai/gpt-5.4")
     provider = "ANTHROPIC" if model.startswith("anthropic/") else "OPENAI"
     if not os.getenv("AGENTROUTER_BASE_URL") and not os.getenv(f"{provider}_API_KEY"):
         raise SystemExit(f"Add {provider}_API_KEY to .env first")

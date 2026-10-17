@@ -100,7 +100,7 @@ def _prepare(
         body = anthropic_format.build_body(target.model, messages, tools, stream, params)
         headers = anthropic_format.headers(target.api_key)
     else:
-        body = openai_format.build_body(target.model, messages, tools, stream, params)
+        body = openai_format.build_body(target.model, messages, tools, stream, params, target.provider)
         headers = {"Authorization": f"Bearer {target.api_key}"} if target.api_key else {}
     headers.update({"content-type": "application/json", **target.headers})
     return target, body, headers

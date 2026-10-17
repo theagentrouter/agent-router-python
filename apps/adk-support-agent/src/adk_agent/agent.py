@@ -92,7 +92,7 @@ class SupportApp:
 @asynccontextmanager
 async def support_app(
     project: Path,
-    model: str = "openai/gpt-4.1-mini",
+    model: str = "openai/gpt-5.4",
     api_base: str | None = None,
     use_mcp: bool = True,
     database: Path | None = None,

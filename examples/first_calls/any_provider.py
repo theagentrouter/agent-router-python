@@ -11,7 +11,7 @@ import os
 
 import theagentrouter
 
-MODELS = ["openai/gpt-4o-mini", "anthropic/claude-haiku-4-5"]
+MODELS = ["openai/gpt-5.4-mini", "anthropic/claude-haiku-5-5"]
 if os.environ.get("AWS_PROFILE") or os.environ.get("AWS_ACCESS_KEY_ID"):
     MODELS.append("bedrock/global.anthropic.claude-haiku-4-5-20251001-v1:0")
 

@@ -9,7 +9,7 @@ import theagentrouter as ar
 
 ar.route(
     "patient",
-    primary="openai/gpt-4o-mini",
+    primary="openai/gpt-5.4-mini",
     retry=ar.Retry(attempts=3, on=(429, 500, 502, 503, 504), timeout=30, backoff=0.5),
 )
 resp = ar.completion(model="patient", messages=[{"role": "user", "content": "Say hello."}])

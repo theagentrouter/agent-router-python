@@ -6,6 +6,7 @@ All notable changes to this project are listed here. The format follows [Keep a 
 
 ### Fixed
 
+- `max_tokens` reaches OpenAI as `max_completion_tokens`, which OpenAI's newer models require; they refuse `max_tokens`. Other providers in OpenAI's format still get `max_tokens`.
 - `response_format` with a JSON schema works for Claude: it is sent as `output_config.format`, the field Anthropic takes now. `output_format` was refused.
 - `reasoning_effort` and LiteLLM's `thinking={"type": "enabled", ...}` work on Claude 5 models, which think adaptively and refuse a fixed budget: they get `thinking: adaptive` with `output_config.effort`. The model list says which models these are. For older Claude models, a thinking budget that would not fit the caller's `max_tokens` is reduced to fit.
 - Adding a route or model to a running local gateway with an HTTPS provider (every real provider) no longer stops it. The gateway's config named `BackendTLSPolicy` by an older API version, so the reload could not update it. Two examples no longer assume Claude's reply starts with text, and the tool example uses a model that accepts a forced tool call.
@@ -13,6 +14,8 @@ All notable changes to this project are listed here. The format follows [Keep a 
 
 ### Changed
 
+- The docs, examples, skills and apps use current models: `openai/gpt-5.4-mini` and `openai/gpt-5.4` for Chat Completions, `openai/gpt-6-luna` for the Responses API, and `anthropic/claude-haiku-5-5` and `anthropic/claude-sonnet-5-5`. OpenAI deprecated GPT-4o, GPT-4o mini, GPT-4.1 and GPT-4.1 mini on 2026-10-14.
+- `scripts/smoke_examples.py` runs every example against real providers; the release steps include it.
 - The examples are grouped by what they show: `from_litellm/`, `first_calls/`, `routes/`, `gateways/`, `agent_frameworks/` and `provider_apis/`, with task names instead of numbers. `examples/README.md` lists them.
 
 ## [0.1.0a5] - 2026-10-17

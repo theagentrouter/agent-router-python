@@ -3,7 +3,7 @@
 import theagentrouter
 
 for chunk in theagentrouter.completion(
-    model="openai/gpt-4o-mini",
+    model="openai/gpt-5.4-mini",
     messages=[{"role": "user", "content": "Count from one to ten."}],
     stream=True,
 ):

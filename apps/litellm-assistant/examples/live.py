@@ -9,7 +9,7 @@ import assistant  # noqa: F401  replaces litellm first when the app runs on Agen
 import litellm
 from assistant import app
 
-OPENAI, CLAUDE = "openai/gpt-4o-mini", "anthropic/claude-haiku-4-5"
+OPENAI, CLAUDE = "openai/gpt-5.4-mini", "anthropic/claude-haiku-5-5"
 results = []
 
 
@@ -43,16 +43,19 @@ for model in (OPENAI, CLAUDE):
     check(f"stream with usage {model}", lambda m=model: stream_with_usage(m))
     check(f"tools {model}", lambda m=model: app.with_tools(m, "What is the status of order A-100?")[1])
 check(
+    # Claude 5 thinks adaptively: a thinking request is accepted, and the model decides whether to think,
+    # so the answer is checked, not reasoning_content.
     "claude thinking",
-    lambda: bool(
-        litellm.completion(
-            model="anthropic/claude-sonnet-4-5",
+    lambda: (
+        "391"
+        in litellm.completion(
+            model="anthropic/claude-sonnet-5-5",
             messages=[{"role": "user", "content": "What is 17 * 23?"}],
             thinking={"type": "enabled", "budget_tokens": 1024},
             max_tokens=2048,
         )
         .choices[0]
-        .message.reasoning_content
+        .message.content
     ),
 )
 check(

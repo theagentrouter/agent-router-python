@@ -9,7 +9,7 @@ from collections import Counter
 
 import theagentrouter as ar
 
-ar.route("shared", primary=["openai/gpt-4o-mini", "anthropic/claude-haiku-4-5"])
+ar.route("shared", primary=["openai/gpt-5.4-mini", "anthropic/claude-haiku-5-5"])
 served = Counter(
     ar.completion(model="shared", messages=[{"role": "user", "content": "hi"}], max_tokens=5)._hidden_params[
         "served_by"

@@ -16,17 +16,17 @@ resp = ar.completion(model="anthropic/claude-sonnet-5-5", messages=[{"role": "us
 resp.choices[0].message.content
 resp._hidden_params["response_cost"]   # US dollars, from the bundled model list
 
-for chunk in ar.completion(model="openai/gpt-4o-mini", messages=messages, stream=True):
+for chunk in ar.completion(model="openai/gpt-5.4-mini", messages=messages, stream=True):
     print(chunk.choices[0].delta.content or "", end="")
 
-resp = await ar.acompletion(model="openai/gpt-4o-mini", messages=messages)
+resp = await ar.acompletion(model="openai/gpt-5.4-mini", messages=messages)
 vecs = ar.embedding(model="openai/text-embedding-3-small", input=["a", "b"])  # vecs.data[0]["embedding"]
-resp = ar.responses(input="hi", model="openai/gpt-4o-mini")  # OpenAI models only; resp.output_text
+resp = ar.responses(input="hi", model="openai/gpt-6-luna")  # OpenAI models only; resp.output_text
 resp = ar.anthropic.messages.create(model="anthropic/claude-sonnet-5-5", max_tokens=256, messages=messages)  # Claude only; resp["content"]
-n = ar.token_counter(model="openai/gpt-4o-mini", messages=messages)  # the gateway counts OpenAI and Anthropic
+n = ar.token_counter(model="openai/gpt-5.4-mini", messages=messages)  # the gateway counts OpenAI and Anthropic
 ```
 
-- Model names are `provider/model`; a name on the model list (`gpt-4o-mini`) finds its provider, as in LiteLLM.
+- Model names are `provider/model`; a name on the model list (`gpt-5.4-mini`) finds its provider, as in LiteLLM.
 - Keys come from the provider's usual environment variable (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, ...). Never put a key in code.
 - `tools`, `tool_choice`, `response_format`, `temperature`, `max_tokens`, `timeout`, `api_key`, `api_base`, `extra_headers` work as in LiteLLM.
 - Errors have LiteLLM's names: `ar.exceptions.RateLimitError`, `AuthenticationError`, `ContextWindowExceededError`, ...
@@ -46,7 +46,7 @@ Not arguments on `completion`. Define a route once; the local gateway runs it:
 ```python
 ar.route(
     "chat",
-    primary="openai/gpt-4o",
+    primary="openai/gpt-5.4",
     fallbacks=["anthropic/claude-sonnet-5-5"],
     retry=ar.Retry(attempts=2),
     limit=ar.Limit(60, per="minute"),   # optional; extra requests get RateLimitError

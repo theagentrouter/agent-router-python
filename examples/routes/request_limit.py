@@ -10,7 +10,7 @@ Needs OPENAI_API_KEY.
 
 import theagentrouter as ar
 
-ar.route("capped", primary="openai/gpt-4o-mini", retry=ar.Retry(attempts=0), limit=ar.Limit(3, per="minute"))
+ar.route("capped", primary="openai/gpt-5.4-mini", retry=ar.Retry(attempts=0), limit=ar.Limit(3, per="minute"))
 
 for n in range(1, 6):
     try:

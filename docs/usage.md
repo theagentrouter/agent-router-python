@@ -31,7 +31,7 @@ The SDK has four kinds of call, each as in LiteLLM:
 
 ## Models and keys
 
-A model name is `provider/model`, such as `openai/gpt-4o-mini`. A name with no provider works where it works in LiteLLM: OpenAI and Anthropic names (`gpt-4o-mini`, `claude-haiku-4-5`). Other names need the provider, as in LiteLLM (`mistral/mistral-large-latest`, `groq/llama-3.1-8b-instant`). A bare `gemini-…` name is refused with `BadRequestError`: LiteLLM sends it to Google Cloud's Vertex AI, which the local gateway does not serve yet, so write `gemini/gemini-2.5-flash` for the Gemini API. Every gateway gets the name as you wrote it, with or without the provider, and a gateway you set can have names of its own, such as `claude-sonnet-5`.
+A model name is `provider/model`, such as `openai/gpt-5.4-mini`. A name with no provider works where it works in LiteLLM: OpenAI and Anthropic names (`gpt-5.4-mini`, `claude-haiku-5-5`). Other names need the provider, as in LiteLLM (`mistral/mistral-large-latest`, `groq/llama-3.1-8b-instant`). A bare `gemini-…` name is refused with `BadRequestError`: LiteLLM sends it to Google Cloud's Vertex AI, which the local gateway does not serve yet, so write `gemini/gemini-2.5-flash` for the Gemini API. Every gateway gets the name as you wrote it, with or without the provider, and a gateway you set can have names of its own, such as `claude-sonnet-5`.
 
 Every call goes through a gateway: the local gateway (Agent Router on this computer), or one you set. The local gateway reads each provider's key from the environment when it starts:
 
@@ -74,7 +74,7 @@ These control the call itself:
 ## Streaming
 
 ```python
-for chunk in theagentrouter.completion(model="openai/gpt-4o-mini", messages=messages, stream=True):
+for chunk in theagentrouter.completion(model="openai/gpt-5.4-mini", messages=messages, stream=True):
     print(chunk.choices[0].delta.content or "", end="")
 ```
 
@@ -83,9 +83,9 @@ Every chunk has a choice, as in LiteLLM. The last chunk, the one with the finish
 ## Async
 
 ```python
-resp = await theagentrouter.acompletion(model="openai/gpt-4o-mini", messages=messages)
+resp = await theagentrouter.acompletion(model="openai/gpt-5.4-mini", messages=messages)
 
-stream = await theagentrouter.acompletion(model="openai/gpt-4o-mini", messages=messages, stream=True)
+stream = await theagentrouter.acompletion(model="openai/gpt-5.4-mini", messages=messages, stream=True)
 async for chunk in stream:
     print(chunk.choices[0].delta.content or "", end="")
 ```
@@ -120,7 +120,7 @@ print(final.choices[0].message.content)
 ## The Responses API
 
 ```python
-resp = theagentrouter.responses(input="Summarise yesterday's refunds", model="openai/gpt-4o-mini", max_output_tokens=200)
+resp = theagentrouter.responses(input="Summarise yesterday's refunds", model="openai/gpt-6-luna", max_output_tokens=200)
 resp.output_text                       # the text of the output messages
 resp.output[0].content[0].text         # the reply as OpenAI sends it, by attribute or key
 resp.usage.input_tokens
@@ -194,7 +194,7 @@ Errors keep LiteLLM's names and carry `status_code`, `model` and `llm_provider`:
 from theagentrouter import exceptions
 
 try:
-    theagentrouter.completion(model="openai/gpt-4o-mini", messages=messages)
+    theagentrouter.completion(model="openai/gpt-5.4-mini", messages=messages)
 except exceptions.ContextWindowExceededError:
     ...
 except exceptions.RateLimitError:
@@ -220,9 +220,9 @@ except exceptions.RateLimitError:
 
 ```python
 theagentrouter.completion_cost(resp)                      # US dollars for this response
-theagentrouter.get_model_info("openai/gpt-4o-mini")       # context window, prices, features
+theagentrouter.get_model_info("openai/gpt-5.4-mini")       # context window, prices, features
 theagentrouter.supports_function_calling("anthropic/claude-sonnet-5-5")
-theagentrouter.model_cost["openai/gpt-4o-mini"]           # the raw entry, as in litellm.model_cost
+theagentrouter.model_cost["openai/gpt-5.4-mini"]           # the raw entry, as in litellm.model_cost
 ```
 
 These read the model list that ships with each release ([tetrateio/agent-router-models](https://github.com/tetrateio/agent-router-models)): OpenAI, Anthropic, Gemini and Groq models, and DeepInfra and xAI models for prices only. It has no Bedrock, Mistral, DeepSeek or Together models. `max_tokens` and `max_output_tokens` are the output limit where the list has one, and `None` where it has not. For OpenAI models without an explicit input limit, `max_input_tokens` is the context window less the output limit, since OpenAI's window includes the output. The SDK never downloads the list while it runs. `get_model_info` raises `NotFoundError` for a model that is not on the list.
@@ -235,7 +235,7 @@ The list also marks models deprecated. A model it still offers has a `deprecatio
 
 ```python
 theagentrouter.register_model({
-    "ft:gpt-4o-mini:acme": {"litellm_provider": "openai", "mode": "chat", "input_cost_per_token": 3e-07, "output_cost_per_token": 1.2e-06},
+    "ft:gpt-5.4-mini:acme": {"litellm_provider": "openai", "mode": "chat", "input_cost_per_token": 3e-07, "output_cost_per_token": 1.2e-06},
 })
 
 # Or LiteLLM's whole list, about 4,000 models from every provider:
@@ -270,7 +270,7 @@ A function is called as `fn(kwargs, response, start_time, end_time)`; a logger o
 
 ```python
 theagentrouter.token_counter(model="anthropic/claude-sonnet-5-5", messages=messages, tools=tools)
-theagentrouter.token_counter(model="openai/gpt-4o-mini", text="Summarise yesterday's refunds")
+theagentrouter.token_counter(model="openai/gpt-5.4-mini", text="Summarise yesterday's refunds")
 ```
 
 LiteLLM's arguments. For OpenAI and Anthropic models, with or without the provider in the name, the gateway counts: Agent Router asks the provider (`/responses/input_tokens`, `/messages/count_tokens`), so the number is what the provider will charge for. Every other provider, a name the SDK cannot place with a provider, and a count the gateway cannot give are estimated on this computer the way LiteLLM does: its rules for messages and tools, with tiktoken. Install it with `pip install theagentrouter[tokens]`; without it the estimate is about four characters a token, and the SDK warns once.
@@ -282,10 +282,10 @@ The gateway's count is a request each time. Code that counts before every turn c
 `mock_response` works as in LiteLLM: the call is answered on your computer, so no gateway starts and no provider is called.
 
 ```python
-resp = theagentrouter.completion(model="openai/gpt-4o-mini", messages=messages, mock_response="Offline reply")
+resp = theagentrouter.completion(model="openai/gpt-5.4-mini", messages=messages, mock_response="Offline reply")
 resp.choices[0].message.content          # "Offline reply"; usage is 10 prompt and 20 completion tokens
 
-theagentrouter.completion(model="openai/gpt-4o-mini", messages=messages, mock_response="litellm.RateLimitError")  # raises RateLimitError
+theagentrouter.completion(model="openai/gpt-5.4-mini", messages=messages, mock_response="litellm.RateLimitError")  # raises RateLimitError
 ```
 
 It also takes an exception to raise, a dict or `ModelResponse` as the whole response, `stream=True` (the text comes three characters at a time, with usage on the last chunk) and `acompletion`. `mock_tool_calls` adds tool calls, `mock_timeout=True` with a `timeout` raises `Timeout`, and `mock_delay` waits first. Callbacks run as for any call. To test the request the SDK sends, use a test server with `api_base` instead.
@@ -356,7 +356,7 @@ import theagentrouter as ar
 
 ar.route(
     "chat",
-    primary="openai/gpt-4o",
+    primary="openai/gpt-5.4",
     fallbacks=["anthropic/claude-sonnet-5-5"],
     retry=ar.Retry(attempts=2, on=(429, 500, 502, 503, 504)),
 )
@@ -369,7 +369,7 @@ The local gateway does the retries and the fallbacks, as Agent Router Enterprise
 
 - **Retry:** the gateway tries each tier `attempts` more times on the listed status codes and on connection failures, with `backoff` seconds before the first retry, doubling up to 10 seconds, and an optional per-try `timeout`.
 - **Fallback:** when a tier still fails with one of those codes, or cannot be reached, the gateway moves to the next tier. A stream falls back only before its reply starts.
-- **Sharing:** `primary=["openai/gpt-4o", "openai/gpt-4o-mini"]` puts two models in one tier, which share the traffic. A fallback can be a list too.
+- **Sharing:** `primary=["openai/gpt-5.4", "openai/gpt-5.4-mini"]` puts two models in one tier, which share the traffic. A fallback can be a list too.
 - `served_by` is read from the model name in the reply, so it is missing when a provider answers with a name that does not start with the model's own.
 - Routes are kept in `~/.agentrouter/routes.json` and shared by every program on the computer, like the local gateway. Defining a route again replaces it; `ar.list_routes()` and `ar.remove_route(name)` list and remove them. A changed route reloads the gateway on the next call that needs it, without interrupting other programs.
 - Define routes without local provider keys or a companion package when exporting configuration. The machine that starts the gateway needs credentials for every provider in the saved routes.

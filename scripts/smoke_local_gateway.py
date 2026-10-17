@@ -25,7 +25,7 @@ for var in ("AGENTROUTER_BASE_URL", "AGENTROUTER_AUTOSTART"):
 import theagentrouter  # noqa: E402
 from theagentrouter import local_gateway  # noqa: E402
 
-MODELS = {"openai": "openai/gpt-4o-mini", "anthropic": "anthropic/claude-haiku-4-5"}
+MODELS = {"openai": "openai/gpt-5.4-mini", "anthropic": "anthropic/claude-haiku-5-5"}
 TOOLS = [
     {
         "type": "function",

@@ -414,3 +414,12 @@ def test_claude_5_thinks_adaptively_and_older_claude_within_max_tokens(env, fake
     assert body["thinking"] == {"type": "enabled", "budget_tokens": 2047} and body["max_tokens"] == 2048
     with pytest.raises(exceptions.BadRequestError, match="max_tokens above 1024"):
         theagentrouter.completion(model="anthropic/claude-haiku-4-5", reasoning_effort="low", max_tokens=1000, **base)
+
+
+def test_openai_gets_max_completion_tokens(env, fake):
+    # OpenAI's newer models refuse max_tokens; other OpenAI-format providers keep it.
+    theagentrouter.completion(model="openai/gpt-5.4-mini", messages=HELLO, max_tokens=50, api_base=fake.url)
+    body = fake.requests[-1][2]
+    assert body["max_completion_tokens"] == 50 and "max_tokens" not in body
+    theagentrouter.completion(model="openai/gpt-5.4-mini", messages=HELLO, max_completion_tokens=40, api_base=fake.url)
+    assert fake.requests[-1][2]["max_completion_tokens"] == 40

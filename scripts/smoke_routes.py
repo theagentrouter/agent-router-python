@@ -50,11 +50,11 @@ def main() -> int:
         return 1
     try:
         print("route with a working primary")
-        ar.route("chat", primary="openai/gpt-4o-mini", fallbacks=["anthropic/claude-haiku-4-5"])
+        ar.route("chat", primary="openai/gpt-5.4-mini", fallbacks=["anthropic/claude-haiku-5-5"])
         try:
             resp, hp = ask("chat")
             check("answered", bool(resp.choices[0].message.content), resp.choices[0].message.content or "")
-            check("by the primary", hp.get("served_by") == "openai/gpt-4o-mini", str(hp.get("served_by")))
+            check("by the primary", hp.get("served_by") == "openai/gpt-5.4-mini", str(hp.get("served_by")))
             check("through the local gateway", hp.get("route") == "local gateway", hp.get("sent_to", ""))
         except Exception as e:
             check("answered", False, f"{type(e).__name__}: {e}")
@@ -63,13 +63,13 @@ def main() -> int:
         ar.route(
             "fallback",
             primary="openai/gpt-does-not-exist",
-            fallbacks=["anthropic/claude-haiku-4-5"],
+            fallbacks=["anthropic/claude-haiku-5-5"],
             retry=ar.Retry(attempts=0, on=FALLBACK_ON),
         )
         try:
             resp, hp = ask("fallback")
             check("answered", bool(resp.choices[0].message.content), resp.choices[0].message.content or "")
-            check("by the fallback", hp.get("served_by") == "anthropic/claude-haiku-4-5", str(hp.get("served_by")))
+            check("by the fallback", hp.get("served_by") == "anthropic/claude-haiku-5-5", str(hp.get("served_by")))
             check("in one request from the SDK", hp.get("route_name") == "fallback" and "fallbacks_tried" not in hp)
         except Exception as e:
             check("answered", False, f"{type(e).__name__}: {e}")
@@ -78,7 +78,7 @@ def main() -> int:
         router = litellm.Router(
             model_list=[
                 {"model_name": "main", "litellm_params": {"model": "openai/gpt-does-not-exist"}},
-                {"model_name": "spare", "litellm_params": {"model": "anthropic/claude-haiku-4-5"}},
+                {"model_name": "spare", "litellm_params": {"model": "anthropic/claude-haiku-5-5"}},
             ],
             fallbacks=[{"main": ["spare"]}],
             num_retries=0,
@@ -86,12 +86,12 @@ def main() -> int:
         try:
             resp = router.completion(model="main", messages=ASK, max_tokens=30)
             check("answered", bool(resp.choices[0].message.content), resp.choices[0].message.content or "")
-            check("by the fallback", resp._hidden_params.get("served_by") == "anthropic/claude-haiku-4-5")
+            check("by the fallback", resp._hidden_params.get("served_by") == "anthropic/claude-haiku-5-5")
         except Exception as e:
             check("answered", False, f"{type(e).__name__}: {e}")
 
         print("a tier of two models")
-        ar.route("shared", primary=["openai/gpt-4o-mini", "anthropic/claude-haiku-4-5"])
+        ar.route("shared", primary=["openai/gpt-5.4-mini", "anthropic/claude-haiku-5-5"])
         served = set()
         for _ in range(6):
             try:
@@ -101,7 +101,7 @@ def main() -> int:
                 break
         check(
             "answers from the tier",
-            served <= {"openai/gpt-4o-mini", "anthropic/claude-haiku-4-5"} and bool(served),
+            served <= {"openai/gpt-5.4-mini", "anthropic/claude-haiku-5-5"} and bool(served),
             ", ".join(sorted(s for s in served if s)),
         )
     finally:

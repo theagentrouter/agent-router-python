@@ -10,7 +10,7 @@ import theagentrouter
 
 async def ask(question: str) -> str:
     resp = await theagentrouter.acompletion(
-        model="openai/gpt-4o-mini", messages=[{"role": "user", "content": question}], max_tokens=30
+        model="openai/gpt-5.4-mini", messages=[{"role": "user", "content": question}], max_tokens=30
     )
     return resp.choices[0].message.content
 

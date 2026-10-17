@@ -14,7 +14,7 @@ schema = {
     "additionalProperties": False,
 }
 resp = theagentrouter.completion(
-    model="openai/gpt-4o-mini",
+    model="openai/gpt-5.4-mini",
     messages=[{"role": "user", "content": "Yesterday we had 3 refunds. Report it."}],
     response_format={"type": "json_schema", "json_schema": {"name": "report", "schema": schema, "strict": True}},
 )

@@ -30,7 +30,7 @@ from google.adk.models.lite_llm import LiteLlm
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 
-MODELS = {"OPENAI_API_KEY": "openai/gpt-4o-mini", "ANTHROPIC_API_KEY": "anthropic/claude-haiku-4-5"}
+MODELS = {"OPENAI_API_KEY": "openai/gpt-5.4-mini", "ANTHROPIC_API_KEY": "anthropic/claude-haiku-5-5"}
 INSTRUCTION = (
     'Answer questions about refunds. Use search_refunds. Pass the day as the user wrote it, for example "yesterday".'
 )

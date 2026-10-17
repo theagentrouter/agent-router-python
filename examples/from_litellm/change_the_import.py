@@ -10,7 +10,7 @@ import json
 
 from theagentrouter.compat import litellm  # was: import litellm
 
-MODEL = "openai/gpt-4o-mini"
+MODEL = "openai/gpt-5.4-mini"
 TOOLS = [
     {
         "type": "function",

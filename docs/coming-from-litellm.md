@@ -9,7 +9,7 @@ In your own code:
 ```python
 from theagentrouter.compat import litellm   # was: import litellm
 
-resp = litellm.completion(model="openai/gpt-4o-mini", messages=messages)
+resp = litellm.completion(model="openai/gpt-5.4-mini", messages=messages)
 ```
 
 When a library you use imports `litellm` itself, as Google ADK and the OpenAI Agents SDK do, make that import answer with theagentrouter instead. Call this once, before importing the library:
@@ -70,7 +70,7 @@ These `completion` arguments work in LiteLLM but do nothing in theagentrouter. C
 | `fallbacks`, `context_window_fallbacks`, `content_policy_fallbacks` | Define a route with fallbacks, or use `Router(fallbacks=...)` |
 | `caching`, `cache` | A gateway caches |
 | `metadata`, `tags`, `callbacks`, `logger_fn` (as arguments on one call) | The gateway's request logs record calls; for callbacks, set the module's lists ([Callbacks](usage.md#callbacks)) |
-| `custom_llm_provider` | Name the provider in the model, for example `openai/gpt-4o-mini` |
+| `custom_llm_provider` | Name the provider in the model, for example `openai/gpt-5.4-mini` |
 | `api_version` | Azure OpenAI goes through a gateway |
 
 A value that asks for nothing does not warn. Other unknown completion arguments warn instead of disappearing silently.

@@ -76,7 +76,7 @@ Then make a first call with a key in your environment:
 export OPENAI_API_KEY=...
 python -c "
 import theagentrouter
-r = theagentrouter.completion(model='openai/gpt-4o-mini', messages=[{'role': 'user', 'content': 'Say hi.'}])
+r = theagentrouter.completion(model='openai/gpt-5.4-mini', messages=[{'role': 'user', 'content': 'Say hi.'}])
 print(r.choices[0].message.content)"
 ```
 

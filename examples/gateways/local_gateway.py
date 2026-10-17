@@ -14,8 +14,8 @@ To stop the gateway:
 
 import theagentrouter as ar
 
-resp = ar.completion(model="openai/gpt-4o-mini", messages=[{"role": "user", "content": "Say hello in three words."}])
+resp = ar.completion(model="openai/gpt-5.4-mini", messages=[{"role": "user", "content": "Say hello in three words."}])
 print(resp.choices[0].message.content)
 print("went through:", resp._hidden_params["route"])  # "local gateway"
-# The SDK sends the full name; the gateway passes OpenAI its own name, gpt-4o-mini.
+# The SDK sends the full name; the gateway passes OpenAI its own name, gpt-5.4-mini.
 print("model name the SDK sent:", resp._hidden_params["model_sent"])
