@@ -83,6 +83,37 @@ def test_the_gateway_runs_the_pinned_envoy(env, monkeypatch):
     assert seen["ENVOY_VERSION"] == "1.39.3"  # the user's choice wins
 
 
+def test_each_start_has_its_own_mcp_session_seed(env, monkeypatch):
+    seen = []
+
+    class Started(Exception):
+        pass
+
+    def launch(home, environ, *args):
+        seen.append(environ.get("AIGW_MCP_SESSION_ENCRYPTION_SEED"))
+        raise Started
+
+    monkeypatch.setattr(local_gateway, "_launch", launch)
+    monkeypatch.setattr(local_gateway, "_busy_internal", lambda: None)
+    monkeypatch.delenv("AIGW_MCP_SESSION_ENCRYPTION_SEED", raising=False)
+    for _ in range(2):
+        with pytest.raises(Started):
+            local_gateway._start(["openai"], [])
+    assert len(seen[0]) >= 32 and len(seen[1]) >= 32 and seen[0] != seen[1]
+    monkeypatch.setenv("AIGW_MCP_SESSION_ENCRYPTION_SEED", "acme-seed")
+    with pytest.raises(Started):
+        local_gateway._start(["openai"], [])
+    assert seen[-1] == "acme-seed"  # the user's choice wins
+
+
+@needs_aigw
+@needs_xds_port
+def test_real_gateway_does_not_use_the_public_mcp_seed(real_gateway):
+    theagentrouter.completion(model="acme/acme-large", messages=HELLO)
+    log = (local_gateway.folder() / "aigw.log").read_text(errors="replace")
+    assert "well-known default value" not in log
+
+
 # ---- which key goes where -----------------------------------------------------------------------
 
 

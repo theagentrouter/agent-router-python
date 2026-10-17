@@ -43,6 +43,8 @@ The start lock times out after 10 seconds. The SDK checks that its runtime direc
 
 ## Config
 
+At each start the SDK also gives `aigw` a random `AIGW_MCP_SESSION_ENCRYPTION_SEED`, unless one is set: `aigw run` always starts an MCP proxy, which otherwise derives its session keys from a public default.
+
 The SDK writes the resources `aigw run` reads: a `GatewayClass` and `Gateway` at a free port chosen at each start (kept in `state.json`; `--admin-port` is chosen the same way), a buffer-limit `ClientTrafficPolicy`, a `SecurityPolicy` that answers only callers on this computer (`127.0.0.1` and `::1`; others get 403), one `AIGatewayRoute`, and per provider a `Backend`, a `BackendTLSPolicy` for HTTPS, an `AIServiceBackend`, a `BackendSecurityPolicy` and, for API keys, a `Secret`.
 
 **The SDK's `config.yaml` holds key references, not key values.** Each `Secret` holds `${OPENAI_API_KEY}`-style references. `aigw` fills them in from its environment and writes its translated resources and runtime configuration under `aigw-state/`. Those generated files can contain credentials. The end-to-end test checks the SDK input file and the key received by the provider; it does not assert that the upstream process keeps every generated file free of keys.

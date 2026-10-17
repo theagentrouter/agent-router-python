@@ -1,4 +1,4 @@
-"""Build pinned aigw source with the reviewed Secret-retention fix for local/CI checks."""
+"""Build pinned aigw source with the reviewed patches in local-gateway/patches/ for local/CI checks."""
 
 from __future__ import annotations
 
@@ -13,6 +13,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 COMMIT = "daa9f891a8afcb18576d4593ad18870d1d18abac"
+# Each patch, in the order it applies, with the upstream test that checks it.
+PATCHES = [
+    ("aigw-v1.2.0-client-secrets.patch", "TestRunCmdContextRetainsClientAuthenticationSecrets"),
+    ("aigw-v1.2.0-mcp-session-seed.patch", "Test_mustStartExtProc_mcpSessionEncryptionSeed|Test_doMain"),
+]
 
 
 def main() -> None:
@@ -56,11 +61,12 @@ def main() -> None:
         actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip()
         if actual != COMMIT:
             raise SystemExit("The upstream tag no longer matches the reviewed source commit")
-        patch = ROOT / "local-gateway/patches/aigw-v1.2.0-client-secrets.patch"
-        subprocess.run(["git", "apply", "--check", str(patch)], cwd=source, check=True)
-        subprocess.run(["git", "apply", str(patch)], cwd=source, check=True)
+        for name, _ in PATCHES:
+            patch = ROOT / "local-gateway/patches" / name
+            subprocess.run(["git", "apply", "--check", str(patch)], cwd=source, check=True)
+            subprocess.run(["git", "apply", str(patch)], cwd=source, check=True)
         subprocess.run(
-            ["go", "test", "./cmd/aigw", "-run", "TestRunCmdContextRetainsClientAuthenticationSecrets", "-count=1"],
+            ["go", "test", "./cmd/aigw", "-run", "|".join(test for _, test in PATCHES), "-count=1"],
             cwd=source,
             env=build_env,
             check=True,
@@ -73,7 +79,7 @@ def main() -> None:
                 raise SystemExit(
                     "The built gateway requires glibc newer than 2.36; rebuild on the minimum platform or with CGO_ENABLED=0 before packaging"
                 )
-    print(f"Built aigw {COMMIT} with client-key Secret retention: {output}")
+    print(f"Built aigw {COMMIT} with {len(PATCHES)} patches: {output}")
 
 
 if __name__ == "__main__":

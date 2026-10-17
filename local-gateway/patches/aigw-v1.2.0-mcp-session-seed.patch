@@ -1,0 +1,104 @@
+diff --git a/cmd/aigw/main.go b/cmd/aigw/main.go
+index 53dee3d..11a7f46 100644
+--- a/cmd/aigw/main.go
++++ b/cmd/aigw/main.go
+@@ -50,7 +50,8 @@ type (
+ 		McpJSON   string `name:"mcp-json" help:"JSON string of MCP servers configuration."`
+ 		RunID     string `name:"run-id" env:"AIGW_RUN_ID" help:"Run identifier for this invocation. Defaults to timestamp-based ID or $AIGW_RUN_ID. Use '0' for Docker/Kubernetes."`
+ 
+-		MCPSessionEncryptionIterations int `name:"mcp-session-encryption-iterations" help:"Number of iterations for MCP session encryption key derivation." default:"100000"`
++		MCPSessionEncryptionIterations int    `name:"mcp-session-encryption-iterations" help:"Number of iterations for MCP session encryption key derivation." default:"100000"`
++		MCPSessionEncryptionSeed       string `name:"mcp-session-encryption-seed" env:"AIGW_MCP_SESSION_ENCRYPTION_SEED" help:"Secret seed for MCP session encryption key derivation. Prefer the environment variable, which keeps the value out of the process list. Defaults to the external processor's built-in default."`
+ 
+ 		mcpConfig *autoconfig.MCPServers `kong:"-"` // Internal field: normalized MCP JSON data
+ 		dirs      *xdg.Directories       `kong:"-"` // Internal field: XDG directories, set by BeforeApply
+diff --git a/cmd/aigw/main_test.go b/cmd/aigw/main_test.go
+index 402dbe8..3500475 100644
+--- a/cmd/aigw/main_test.go
++++ b/cmd/aigw/main_test.go
+@@ -147,6 +147,12 @@ Flags:
+       --mcp-session-encryption-iterations=100000
+                               Number of iterations for MCP session encryption
+                               key derivation.
++      --mcp-session-encryption-seed=STRING
++                              Secret seed for MCP session encryption key
++                              derivation. Prefer the environment variable,
++                              which keeps the value out of the process list.
++                              Defaults to the external processor's built-in
++                              default ($AIGW_MCP_SESSION_ENCRYPTION_SEED).
+ `,
+ 			expPanicCode: ptr.To(0),
+ 		},
+diff --git a/cmd/aigw/run.go b/cmd/aigw/run.go
+index 0c499dd..c2ad0ea 100644
+--- a/cmd/aigw/run.go
++++ b/cmd/aigw/run.go
+@@ -81,6 +81,8 @@ type runCmdContext struct {
+ 	fakeClientSet *fake.Clientset
+ 	// mcpSessionEncryptionIterations is the number of iterations for MCP session encryption key derivation.
+ 	mcpSessionEncryptionIterations int
++	// mcpSessionEncryptionSeed is the seed for MCP session encryption key derivation. Empty keeps the external processor's default.
++	mcpSessionEncryptionSeed string
+ }
+ 
+ // run starts the AI Gateway locally for a given configuration.
+@@ -148,6 +150,7 @@ func run(ctx context.Context, c *cmdRun, o *runOpts, stdout, stderr io.Writer) e
+ 		adminPort:                      c.AdminPort,
+ 		extProcLauncher:                o.extProcLauncher,
+ 		mcpSessionEncryptionIterations: c.MCPSessionEncryptionIterations,
++		mcpSessionEncryptionSeed:       c.MCPSessionEncryptionSeed,
+ 	}
+ 	// If any of the configured MCP servers is using stdio, set up the streamable HTTP proxies for them
+ 	if err = proxyStdioMCPServers(ctx, debugLogger, c.mcpConfig); err != nil {
+@@ -398,6 +401,9 @@ func (runCtx *runCmdContext) mustStartExtProc(
+ 		"--mcpAddr", ":" + strconv.Itoa(internalapi.MCPProxyPort),
+ 		"--mcpSessionEncryptionIterations", strconv.Itoa(runCtx.mcpSessionEncryptionIterations),
+ 	}
++	if runCtx.mcpSessionEncryptionSeed != "" {
++		args = append(args, "--mcpSessionEncryptionSeed", runCtx.mcpSessionEncryptionSeed)
++	}
+ 	if runCtx.isDebug {
+ 		args = append(args, "--logLevel", "debug")
+ 	} else {
+diff --git a/cmd/aigw/run_test.go b/cmd/aigw/run_test.go
+index cdc97f1..53aefd0 100644
+--- a/cmd/aigw/run_test.go
++++ b/cmd/aigw/run_test.go
+@@ -184,6 +184,37 @@ func Test_mustStartExtProc(t *testing.T) {
+ 	require.Equal(t, version.Parse(), cfg.Version)
+ }
+ 
++func Test_mustStartExtProc_mcpSessionEncryptionSeed(t *testing.T) {
++	for _, tc := range []struct {
++		name, seed string
++		want       bool
++	}{
++		{name: "unset keeps the extproc default", seed: "", want: false},
++		{name: "set is passed on", seed: "acme-test-seed", want: true},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			var capturedArgs []string
++			runCtx := &runCmdContext{
++				stderrLogger:             slog.New(slog.DiscardHandler),
++				stderr:                   io.Discard,
++				tmpdir:                   t.TempDir(),
++				adminPort:                1064,
++				mcpSessionEncryptionSeed: tc.seed,
++				extProcLauncher: func(_ context.Context, args []string, _ io.Writer) error {
++					capturedArgs = args
++					return errors.New("mock error")
++				},
++			}
++			<-runCtx.mustStartExtProc(t.Context(), &filterapi.Config{Version: version.Parse()})
++			if tc.want {
++				require.Equal(t, tc.seed, findFlagValue(capturedArgs, "--mcpSessionEncryptionSeed"))
++			} else {
++				require.NotContains(t, capturedArgs, "--mcpSessionEncryptionSeed")
++			}
++		})
++	}
++}
++
+ func Test_mustStartExtProc_defaultHeaderAttributes(t *testing.T) {
+ 	var capturedArgs []string
+ 	runCtx := &runCmdContext{

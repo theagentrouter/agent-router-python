@@ -1,6 +1,10 @@
-# Local aigw patch
+# Local aigw patches
 
-The server-authentication fix needs this patch in addition to the SDK configuration change. Upstream `aigw run` v1.2.0 passes original Secrets into the translator but emits only generated Secrets. Envoy Gateway therefore cannot find the client-key Secret referenced by the exported authentication policy. The patch retains original Secrets and adds an upstream regression test. It does not change internal listen addresses.
+The builder applies these to upstream v1.2.0, in this order.
+
+**`aigw-v1.2.0-client-secrets.patch`.** The server-authentication fix needs this patch in addition to the SDK configuration change. Upstream `aigw run` v1.2.0 passes original Secrets into the translator but emits only generated Secrets. Envoy Gateway therefore cannot find the client-key Secret referenced by the exported authentication policy. The patch retains original Secrets and adds an upstream regression test. It does not change internal listen addresses.
+
+**`aigw-v1.2.0-mcp-session-seed.patch`.** `aigw run` always starts an MCP proxy, and upstream v1.2.0 gives it no seed, so its session keys come from a public default. The patch adds `--mcp-session-encryption-seed`, also read from `AIGW_MCP_SESSION_ENCRYPTION_SEED`, and passes it to the external processor; without it, behavior is unchanged. The local gateway sets a random seed at each start. The patch updates the `aigw run --help` test and adds one for the passed seed.
 
 Build from the repository root with Git and Go 1.27.1 available:
 

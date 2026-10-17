@@ -16,6 +16,7 @@ All notable changes to this project are listed here. The format follows [Keep a 
 ### Security
 
 - Exported server configuration requires client-key authentication by default; an open endpoint requires `authentication=False`. This needs the bundled upstream Secret-retention patch and source build described in `local-gateway/patches/README.md`; no patched upstream release has been published.
+- The local gateway gives `aigw` a random MCP session seed at each start, so the MCP proxy that `aigw run` always starts no longer uses its public default. This needs the second bundled upstream patch. An exported server reads the seed from `AIGW_MCP_SESSION_ENCRYPTION_SEED`.
 - Release workflows use exact companion artifact names, publish the verified bundle by artifact ID, and pin third-party actions to full commit SHAs.
 
 ### Added

@@ -29,6 +29,7 @@ import importlib.util
 import json
 import os
 import re
+import secrets
 import shutil
 import signal
 import socket
@@ -907,6 +908,8 @@ def _start(providers: list[str], models: list[str], routes: dict | None = None) 
     runtime = _runtime_dir()
     _private_dir(runtime)
     env.setdefault("ENVOY_VERSION", ENVOY_VERSION)
+    # aigw run always starts an MCP proxy; without a seed it derives session keys from a public default.
+    env.setdefault("AIGW_MCP_SESSION_ENCRYPTION_SEED", secrets.token_urlsafe(32))
     env.update(
         AIGW_CONFIG_HOME=str(home / "config-home"),
         AIGW_STATE_HOME=str(home / "aigw-state"),

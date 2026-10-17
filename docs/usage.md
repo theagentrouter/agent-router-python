@@ -399,7 +399,7 @@ What the file holds:
 - **Routes:** the routes defined on your computer, with their fallbacks, retries and limits.
 - **No key values:** only references such as `${OPENAI_API_KEY}`, which `aigw` fills in from the server's environment.
 
-Exported configurations require a client key by default. Set `AGENTROUTER_API_KEY` on the server and on each client. The gateway accepts `Authorization: Bearer <key>` or `x-api-key: <key>` and strips the client header before forwarding. `export_config(authentication=False)` explicitly exports an open endpoint. Terminate TLS in front of the server when callers use an untrusted network. The server-authentication change requires the [patched aigw build](../local-gateway/patches/README.md); unmodified upstream v1.2.0 drops the client-key Secret.
+Exported configurations require a client key by default. Set `AGENTROUTER_API_KEY` on the server and on each client. The gateway accepts `Authorization: Bearer <key>` or `x-api-key: <key>` and strips the client header before forwarding. `export_config(authentication=False)` explicitly exports an open endpoint. Terminate TLS in front of the server when callers use an untrusted network. The server-authentication change requires the [patched aigw build](../local-gateway/patches/README.md); unmodified upstream v1.2.0 drops the client-key Secret. On the server, also set `AIGW_MCP_SESSION_ENCRYPTION_SEED` to a random secret: `aigw` always starts an MCP proxy, which otherwise uses a publicly known seed. The patched build reads it; unmodified v1.2.0 has no setting for it.
 
 #### Routes and a gateway you set
 
