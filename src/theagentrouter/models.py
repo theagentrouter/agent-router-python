@@ -42,8 +42,11 @@ def _from_catalog_record(record: dict[str, Any]) -> dict[str, Any]:
     """One model from tetrateio/agent-router-models, in LiteLLM's field names."""
     caps = set(record.get("capabilities") or [])
     modal_in = set((record.get("modalities") or {}).get("input") or [])
-    window, output = record.get("contextWindow"), record.get("maxOutputTokens")
-    max_input = window - output if window and output and record.get("provider") in _WINDOW_HOLDS_OUTPUT else window
+    limits = record.get("limits") or {}
+    window, output = record.get("contextWindow"), limits.get("max_output_tokens")
+    max_input = limits.get("max_input_tokens") or (
+        window - output if window and output and record.get("provider") in _WINDOW_HOLDS_OUTPUT else window
+    )
     entry = {
         "litellm_provider": record.get("provider"),
         "mode": record.get("mode"),

@@ -233,12 +233,27 @@ async def test_async_completion_and_stream(fake):
     assert json.loads(args) == {"query": "refunds yesterday"}
 
 
+def test_catalog_records_give_their_limits():
+    from theagentrouter.models import from_catalog
+
+    record = {"provider": "openai", "model": "acme-1", "contextWindow": 1000, "limits": {"max_output_tokens": 100}}
+    assert from_catalog({"models": [record]})["openai/acme-1"]["max_input_tokens"] == 900
+    record["limits"]["max_input_tokens"] = 850  # an explicit input limit wins
+    entry = from_catalog({"models": [record]})["openai/acme-1"]
+    assert entry["max_input_tokens"] == 850 and entry["max_output_tokens"] == entry["max_tokens"] == 100
+    del record["limits"]
+    assert "max_tokens" not in from_catalog({"models": [record]})["openai/acme-1"]
+
+
 def test_model_info():
     info = theagentrouter.get_model_info("anthropic/claude-sonnet-4-5")
     assert info["max_input_tokens"] > 0 and info["supports_function_calling"]
-    assert info["max_output_tokens"] is None  # tetrateio/agent-router-models has no output limits yet
-    # LiteLLM's max_tokens is the output limit: never the context window.
-    assert theagentrouter.get_model_info("openai/gpt-5")["max_tokens"] is None
+    # The output limit is the catalog's limits.max_output_tokens; LiteLLM's max_tokens is that, never the window.
+    assert info["max_output_tokens"] == info["max_tokens"] == 64000
+    mini = theagentrouter.get_model_info("openai/gpt-4o-mini")
+    assert (
+        mini["max_tokens"] == 16384 and mini["max_input_tokens"] == 128000 - 16384
+    )  # OpenAI's window holds the output
     assert litellm.supports_response_schema("anthropic/claude-sonnet-4-5")
     with pytest.raises(exceptions.NotFoundError):
         theagentrouter.get_model_info("openai/no-such-model")
@@ -282,7 +297,7 @@ def test_register_model_as_in_litellm(monkeypatch, tmp_path):
                         "provider": "openai",
                         "mode": "chat",
                         "contextWindow": 400000,
-                        "maxOutputTokens": 128000,
+                        "limits": {"max_output_tokens": 128000},
                         "inputTokensPricePerMillion": "1.25",
                         "capabilities": ["tool_choice"],
                     },
