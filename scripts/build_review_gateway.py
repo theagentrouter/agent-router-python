@@ -39,6 +39,9 @@ def main() -> None:
     output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
     build_env = dict(os.environ)
+    # Linux wheels carry a static program, as upstream's releases are, so no glibc version applies.
+    if sys.platform == "linux":
+        build_env["CGO_ENABLED"] = "0"
     # Clang otherwise embeds the build host's macOS version in cgo's deployment target.
     if sys.platform == "darwin":
         build_env.setdefault("MACOSX_DEPLOYMENT_TARGET", "13.0")

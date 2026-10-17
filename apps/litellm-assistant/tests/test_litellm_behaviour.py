@@ -140,11 +140,12 @@ def test_success_callback_runs_after_a_stream(base):
         for _ in litellm.completion(model=OPENAI, messages=HELLO, stream=True, **base):
             pass
         deadline = time.monotonic() + 5  # LiteLLM calls it from a background thread
-        while not seen and time.monotonic() < deadline:
+        while not [r for r in seen if type(r).__name__ == "ModelResponse"] and time.monotonic() < deadline:
             time.sleep(0.05)
     finally:
         litellm.success_callback = []
-    assert len(seen) == 1
+    # Both give the whole response once at the end. LiteLLM 1.105 also calls it with each chunk first.
+    assert [type(r).__name__ for r in seen if type(r).__name__ == "ModelResponse"] == ["ModelResponse"]
 
 
 def test_mock_response():

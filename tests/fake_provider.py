@@ -149,7 +149,8 @@ class FakeProvider:
                 for e in events:
                     self.wfile.write(e.encode())
                     self.wfile.flush()
-                    time.sleep(delay)
+                    if delay:
+                        time.sleep(delay)
 
             def _embeddings(self, body: dict[str, Any]) -> None:
                 # One small vector per input, its first number the input's length; 3 tokens per input.
