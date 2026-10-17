@@ -4,7 +4,10 @@ the Envoy version, LiteLLM's stream shape and LiteLLM's drop_params for Claude."
 from __future__ import annotations
 
 import json
+import os
 import socket
+import threading
+import time
 
 import httpx
 import pytest
@@ -112,6 +115,80 @@ def test_real_gateway_does_not_use_the_public_mcp_seed(real_gateway):
     theagentrouter.completion(model="acme/acme-large", messages=HELLO)
     log = (local_gateway.folder() / "aigw.log").read_text(errors="replace")
     assert "well-known default value" not in log
+
+
+# ---- a route change and the other programs on the gateway ----------------------------------------
+
+
+def test_a_route_change_reloads_a_gateway_that_can(env, monkeypatch):
+    calls = []
+    state = {
+        "pid": 1,
+        "port": 9,
+        "providers": ["openai"],
+        "models": ["openai/gpt-4o-mini"],
+        "routes": [],
+        "versions": local_gateway.versions(),
+        "reload": True,
+    }
+    monkeypatch.setattr(local_gateway, "running", lambda: state)
+    monkeypatch.setattr(
+        local_gateway, "_reload", lambda s, models, routes: calls.append(("reload", sorted(routes))) or s
+    )
+    monkeypatch.setattr(local_gateway, "stop", lambda *a, **k: calls.append(("stop",)))
+    monkeypatch.setattr(local_gateway, "_start", lambda *a, **k: calls.append(("start",)) or state)
+    theagentrouter.route("acme-chat", "openai/gpt-4o-mini", fallbacks=["openai/gpt-4o"])
+    local_gateway.ensure("acme-chat")
+    assert calls == [("reload", ["acme-chat"])]
+    # A gateway that cannot reload, or a route needing a provider it does not run, still restarts.
+    state["reload"] = False
+    local_gateway.ensure("acme-chat")
+    assert calls[-2:] == [("stop",), ("start",)]
+
+
+def test_reload_reports_models_that_never_reach_envoy(env, monkeypatch):
+    home = local_gateway.folder()
+    home.mkdir(parents=True, exist_ok=True)
+    log = home / "aigw.log"
+    log.write_text("Envoy AI Gateway listening on http://localhost:9 (admin http://localhost:10) after 1s\n")
+
+    def sighup(pid, sig):
+        log.write_text(log.read_text() + "Envoy AI Gateway configuration reloaded\n")
+
+    monkeypatch.setattr(local_gateway.os, "kill", sighup)
+    monkeypatch.setattr(local_gateway, "_models_ready", lambda admin, models: False)
+    monkeypatch.setattr(local_gateway, "_backends_ready", lambda admin, routes: True)
+    monkeypatch.setattr(local_gateway, "BACKENDS_READY_TIMEOUT", 0.3)
+    state = {"pid": os.getpid(), "port": 9, "providers": ["openai"], "models": [], "config_env": {}}
+    with pytest.raises(exceptions.Timeout, match="did not get the new models"):
+        local_gateway._reload(state, ["openai/gpt-4o-mini"], {})
+
+
+@needs_aigw
+@needs_xds_port
+def test_real_gateway_adds_a_route_without_dropping_a_stream(real_gateway):
+    theagentrouter.completion(model="acme/slow-stream", messages=HELLO)  # the first start serves this model
+    before = local_gateway.running()
+    if not before.get("reload"):
+        pytest.skip("this aigw does not reload on SIGHUP")
+    chunks, errors = [], []
+
+    def stream():
+        try:
+            for c in theagentrouter.completion(model="acme/slow-stream", messages=HELLO, stream=True):
+                chunks.append(c)
+        except Exception as e:  # recorded, so the assertion below can show it
+            errors.append(e)
+
+    t = threading.Thread(target=stream)
+    t.start()
+    time.sleep(1)
+    theagentrouter.route("acme-chat", "acme/err-500", fallbacks=["acme/acme-large"])
+    r = theagentrouter.completion(model="acme-chat", messages=HELLO)
+    t.join(30)
+    assert r.choices[0].message.content == "echo: refunds yesterday"  # the fallback answered
+    assert not errors and chunks[-1].choices[0].finish_reason == "stop"
+    assert local_gateway.running()["pid"] == before["pid"]  # no restart
 
 
 # ---- which key goes where -----------------------------------------------------------------------

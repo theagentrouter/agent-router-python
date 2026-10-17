@@ -17,6 +17,7 @@ COMMIT = "daa9f891a8afcb18576d4593ad18870d1d18abac"
 PATCHES = [
     ("aigw-v1.2.0-client-secrets.patch", "TestRunCmdContextRetainsClientAuthenticationSecrets"),
     ("aigw-v1.2.0-mcp-session-seed.patch", "Test_mustStartExtProc_mcpSessionEncryptionSeed|Test_doMain"),
+    ("aigw-v1.2.0-reload-on-sighup.patch", "TestRunCmdContextReloadReplacesTheConfiguration|Test_doMain"),
 ]
 
 

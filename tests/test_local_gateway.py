@@ -401,12 +401,12 @@ def test_real_gateway_end_to_end(real_gateway, env, capsys, monkeypatch):
     second = local_gateway.running()
     assert second["pid"] != first["pid"] and second["providers"] == ["acme", "acme2", "anthropic"]
 
-    # 6. A model the gateway has no rule for yet gets one: the gateway restarts with it.
+    # 6. A model the gateway has no rule for yet gets one: the gateway reloads with it, or restarts if it cannot.
     monkeypatch.setitem(theagentrouter.model_cost, "acme/acme-other", {})
     r = theagentrouter.completion(model="acme/acme-other", messages=HELLO)
     assert r.choices[0].message.content == "echo: refunds yesterday"
     assert fake.requests[-1][2]["model"] == "acme-other"
-    assert local_gateway.running()["pid"] != second["pid"]
+    assert (local_gateway.running()["pid"] == second["pid"]) == bool(second.get("reload"))
 
     # 7. Errors from the provider keep LiteLLM's names through the gateway.
     monkeypatch.setitem(theagentrouter.model_cost, "acme/err-429", {})

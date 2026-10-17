@@ -1,0 +1,265 @@
+diff --git a/cmd/aigw/main.go b/cmd/aigw/main.go
+index 11a7f46..7a9ddd4 100644
+--- a/cmd/aigw/main.go
++++ b/cmd/aigw/main.go
+@@ -35,7 +35,7 @@ type (
+ 		// Version is the sub-command to show the version.
+ 		Version struct{} `cmd:"" help:"Show version."`
+ 		// Run is the sub-command parsed by the `cmdRun` struct.
+-		Run cmdRun `cmd:"" help:"Run the AI Gateway locally for given configuration."`
++		Run cmdRun `cmd:"" help:"Run the AI Gateway locally for given configuration. SIGHUP reloads the configuration file."`
+ 		// Healthcheck is the sub-command to check if the aigw server is healthy.
+ 		Healthcheck cmdHealthcheck `cmd:"" help:"Docker HEALTHCHECK command."`
+ 		// DownloadEnvoy downloads the Envoy binary used by Envoy Gateway.
+diff --git a/cmd/aigw/main_test.go b/cmd/aigw/main_test.go
+index 3500475..311e445 100644
+--- a/cmd/aigw/main_test.go
++++ b/cmd/aigw/main_test.go
+@@ -55,7 +55,8 @@ Commands:
+     Show version.
+ 
+   run [<path>] [flags]
+-    Run the AI Gateway locally for given configuration.
++    Run the AI Gateway locally for given configuration. SIGHUP reloads the
++    configuration file.
+ 
+   healthcheck [flags]
+     Docker HEALTHCHECK command.
+@@ -116,7 +117,8 @@ Flags:
+ 			rf:   func(context.Context, *cmdRun, *runOpts, io.Writer, io.Writer) error { return nil },
+ 			expOut: `Usage: aigw run [<path>] [flags]
+ 
+-Run the AI Gateway locally for given configuration.
++Run the AI Gateway locally for given configuration. SIGHUP reloads the
++configuration file.
+ 
+ Arguments:
+   [<path>]    Path to the AI Gateway configuration yaml file. Defaults to
+diff --git a/cmd/aigw/run.go b/cmd/aigw/run.go
+index 22fc4e8..f4ce9b2 100644
+--- a/cmd/aigw/run.go
++++ b/cmd/aigw/run.go
+@@ -14,9 +14,12 @@ import (
+ 	"log/slog"
+ 	"net"
+ 	"os"
++	"os/signal"
+ 	"path/filepath"
+ 	"strconv"
+ 	"strings"
++	"sync/atomic"
++	"syscall"
+ 	"time"
+ 
+ 	egv1a1 "github.com/envoyproxy/gateway/api/v1alpha1"
+@@ -183,7 +186,8 @@ func run(ctx context.Context, c *cmdRun, o *runOpts, stdout, stderr io.Writer) e
+ 	quotaRateLimitServiceAddr := "envoy-ai-gateway-ratelimit.envoy-gateway-system"
+ 	const quotaRateLimitTimeout = 5
+ 	const quotaRateLimitFailureModeDeny = false
+-	extSrv, err := extensionserver.New(fakeClient, ctrl.Log, o.extprocUDSPath, true, requestHeaderAttributes, logRequestHeaderAttributes, quotaRateLimitServiceAddr, quotaRateLimitTimeout, quotaRateLimitFailureModeDeny)
++	extClient := newReloadableClient(fakeClient)
++	extSrv, err := extensionserver.New(extClient, ctrl.Log, o.extprocUDSPath, true, requestHeaderAttributes, logRequestHeaderAttributes, quotaRateLimitServiceAddr, quotaRateLimitTimeout, quotaRateLimitFailureModeDeny)
+ 	if err != nil {
+ 		return err
+ 	}
+@@ -207,6 +211,25 @@ func run(ctx context.Context, c *cmdRun, o *runOpts, stdout, stderr io.Writer) e
+ 		}
+ 	}()
+ 
++	// SIGHUP reloads the configuration file without restarting Envoy, so requests in flight are not dropped.
++	reloads := make(chan os.Signal, 1)
++	signal.Notify(reloads, syscall.SIGHUP)
++	defer signal.Stop(reloads)
++	go func() {
++		for {
++			select {
++			case <-serverCtx.Done():
++				return
++			case <-reloads:
++				if err := runCtx.reload(serverCtx, c, o, extClient, listenerPort); err != nil {
++					_, _ = fmt.Fprintf(stderr, "Envoy AI Gateway configuration reload failed: %v\n", err)
++				} else {
++					_, _ = fmt.Fprintln(stderr, "Envoy AI Gateway configuration reloaded")
++				}
++			}
++		}
++	}()
++
+ 	// At this point, we have two things prepared:
+ 	//  1. The Envoy Gateway config in egConfigPath.
+ 	//  2. The Envoy Gateway resources in resourceYamlPath pointed by the config at egConfigPath.
+@@ -281,6 +304,18 @@ func recreateDir(path string) error {
+ // writeEnvoyResourcesAndRunExtProc reads all resources from the given string, writes them to the output file, and runs
+ // external processes for EnvoyExtensionPolicy resources.
+ func (runCtx *runCmdContext) writeEnvoyResourcesAndRunExtProc(ctx context.Context, original string) (client.Client, <-chan error, int, error) {
++	fakeClient, fc, listenerPort, err := runCtx.writeEnvoyResources(ctx, original)
++	if err != nil {
++		return nil, nil, 0, err
++	}
++	runCtx.stderrLogger.Info("Running external process", "config", *fc)
++	done := runCtx.mustStartExtProc(ctx, fc)
++	return fakeClient, done, listenerPort, nil
++}
++
++// writeEnvoyResources translates the given resources, writes the Envoy Gateway resources to the output, and returns
++// the objects the extension server reads, the external processor configuration and the listener port.
++func (runCtx *runCmdContext) writeEnvoyResources(ctx context.Context, original string) (client.Client, *filterapi.Config, int, error) {
+ 	aigwRoutes, mcpRoutes, aigwBackends, backendSecurityPolicies, backendTLSPolicies, referenceGrants, gateways, secrets, _, err := collectObjects(original, runCtx.envoyGatewayResourcesOut, runCtx.stderrLogger)
+ 	if err != nil {
+ 		return nil, nil, 0, fmt.Errorf("error collecting: %w", err)
+@@ -380,10 +415,78 @@ func (runCtx *runCmdContext) writeEnvoyResourcesAndRunExtProc(ctx context.Contex
+ 	if err != nil {
+ 		return nil, nil, 0, fmt.Errorf("failed to reassemble filter config bundle: %w", err)
+ 	}
++	return fakeClient, fc, runCtx.tryFindEnvoyListenerPort(gw), nil
++}
+ 
+-	runCtx.stderrLogger.Info("Running external process", "config", *fc)
+-	done := runCtx.mustStartExtProc(ctx, fc)
+-	return fakeClient, done, runCtx.tryFindEnvoyListenerPort(gw), nil
++// extProcReloadWait is how long a reload waits for the external processor to load its new configuration before
++// Envoy Gateway is given the new routes: the external processor checks its configuration every five seconds.
++var extProcReloadWait = 6 * time.Second
++
++// reload translates the configuration file again and hands the result to the running gateway: the extension server
++// reads the new objects, the external processor loads its new configuration, and then Envoy Gateway, which watches
++// its resources directory, updates Envoy. Envoy keeps running, so requests in flight are not dropped. Values that
++// come from the aigw process environment cannot change without a restart; values read from files can.
++func (runCtx *runCmdContext) reload(ctx context.Context, c *cmdRun, o *runOpts, extClient *reloadableClient, listenerPort int) error {
++	original, err := readConfig(o.configPath, c.mcpConfig, c.Debug)
++	if err != nil {
++		return err
++	}
++	resources := &bytes.Buffer{}
++	previous := runCtx.envoyGatewayResourcesOut
++	runCtx.envoyGatewayResourcesOut = resources
++	defer func() { runCtx.envoyGatewayResourcesOut = previous }()
++	fakeClient, fc, port, err := runCtx.writeEnvoyResources(ctx, original)
++	if err != nil {
++		return err
++	}
++	if port != listenerPort {
++		return fmt.Errorf("the listener port cannot change without a restart: %d to %d", listenerPort, port)
++	}
++	marshaled, err := yaml.Marshal(fc)
++	if err != nil {
++		return fmt.Errorf("failed to marshal filter config: %w", err)
++	}
++	extClient.set(fakeClient)
++	if err = writeExtProcConfigBundle(filepath.Join(runCtx.tmpdir, "extproc-config-bundle"), marshaled); err != nil {
++		return fmt.Errorf("failed to write extension proc config bundle: %w", err)
++	}
++	select {
++	case <-ctx.Done():
++		return ctx.Err()
++	case <-time.After(extProcReloadWait):
++	}
++	// Write a new file and rename it into place, so Envoy Gateway never reads a partial file. The new file is written
++	// outside the directory Envoy Gateway watches: it loads every file there, and stops when one disappears.
++	partial := filepath.Join(filepath.Dir(filepath.Dir(o.egResourcesPath)), "envoy-ai-gateway-resources.reload")
++	if err = os.WriteFile(partial, resources.Bytes(), 0o600); err != nil {
++		return fmt.Errorf("failed to write file %s: %w", partial, err)
++	}
++	return os.Rename(partial, o.egResourcesPath)
++}
++
++// reloadableClient is the client the extension server reads objects through. A reload replaces the client behind
++// it; the extension server only gets and lists objects.
++type reloadableClient struct {
++	client.Client
++	current atomic.Pointer[client.Client]
++}
++
++func newReloadableClient(c client.Client) *reloadableClient {
++	r := &reloadableClient{Client: c}
++	r.current.Store(&c)
++	return r
++}
++
++func (r *reloadableClient) set(c client.Client) { r.current.Store(&c) }
++
++// Get implements [client.Reader].
++func (r *reloadableClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
++	return (*r.current.Load()).Get(ctx, key, obj, opts...)
++}
++
++// List implements [client.Reader].
++func (r *reloadableClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
++	return (*r.current.Load()).List(ctx, list, opts...)
+ }
+ 
+ // mustStartExtProc starts the external process with the given working directory, port, and filter configuration.
+diff --git a/cmd/aigw/run_test.go b/cmd/aigw/run_test.go
+index 81a8c8c..b249b1b 100644
+--- a/cmd/aigw/run_test.go
++++ b/cmd/aigw/run_test.go
+@@ -15,13 +15,16 @@ import (
+ 	"os"
+ 	"path/filepath"
+ 	"runtime"
++	"strings"
+ 	"testing"
+ 	"time"
+ 
+ 	"github.com/stretchr/testify/require"
+ 	"github.com/tetratelabs/func-e/api"
++	"sigs.k8s.io/controller-runtime/pkg/client"
+ 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+ 
++	aigv1b1 "github.com/envoyproxy/ai-gateway/api/v1beta1"
+ 	"github.com/envoyproxy/ai-gateway/internal/filterapi"
+ 	internaltesting "github.com/envoyproxy/ai-gateway/internal/testing"
+ 	"github.com/envoyproxy/ai-gateway/internal/version"
+@@ -127,6 +130,52 @@ stringData:
+ 	require.NoError(t, <-done)
+ }
+ 
++func TestRunCmdContextReloadReplacesTheConfiguration(t *testing.T) {
++	internaltesting.ClearTestEnv(t)
++	t.Setenv("OPENAI_BASE_URL", "http://localhost:11434/v1")
++	t.Setenv("OPENAI_API_KEY", "unused")
++	wait := extProcReloadWait
++	extProcReloadWait = 0
++	t.Cleanup(func() { extProcReloadWait = wait })
++	tmpdir := t.TempDir()
++	runCtx := &runCmdContext{
++		envoyGatewayResourcesOut: &bytes.Buffer{},
++		stderrLogger:             slog.New(slog.DiscardHandler),
++		stderr:                   io.Discard,
++		tmpdir:                   tmpdir,
++		extProcLauncher: func(ctx context.Context, _ []string, _ io.Writer) error {
++			<-ctx.Done()
++			return nil
++		},
++	}
++	original := readFileFromProjectRoot(t, "examples/aigw/ollama.yaml")
++	ctx, cancel := context.WithCancel(t.Context())
++	defer cancel()
++	fakeClient, done, listenerPort, err := runCtx.writeEnvoyResourcesAndRunExtProc(ctx, original)
++	require.NoError(t, err)
++	extClient := newReloadableClient(fakeClient)
++
++	o := &runOpts{configPath: filepath.Join(tmpdir, "config.yaml"), egResourcesPath: filepath.Join(tmpdir, "resources", "config.yaml")}
++	require.NoError(t, os.MkdirAll(filepath.Dir(o.egResourcesPath), 0o700))
++	require.NoError(t, os.WriteFile(o.configPath, []byte(strings.ReplaceAll(original, "name: aigw-run", "name: acme-reloaded")), 0o600))
++	require.NoError(t, runCtx.reload(ctx, &cmdRun{}, o, extClient, listenerPort))
++
++	resources, err := os.ReadFile(o.egResourcesPath)
++	require.NoError(t, err)
++	require.Contains(t, string(resources), "name: acme-reloaded")
++	entries, err := os.ReadDir(filepath.Dir(o.egResourcesPath))
++	require.NoError(t, err)
++	require.Len(t, entries, 1) // nothing else ever appears in the directory Envoy Gateway watches
++	var route aigv1b1.AIGatewayRoute
++	require.NoError(t, extClient.Get(ctx, client.ObjectKey{Namespace: "default", Name: "acme-reloaded"}, &route))
++	require.Error(t, extClient.Get(ctx, client.ObjectKey{Namespace: "default", Name: "aigw-run"}, &route))
++
++	// The listener port cannot move without a restart.
++	require.ErrorContains(t, runCtx.reload(ctx, &cmdRun{}, o, extClient, listenerPort+1), "listener port")
++	cancel()
++	require.NoError(t, <-done)
++}
++
+ //go:embed testdata/gateway_no_listeners.yaml
+ var gatewayNoListenersConfig string
+ 

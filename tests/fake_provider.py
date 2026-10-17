@@ -5,6 +5,7 @@ Behaviour, for both formats:
   with {"query": <last user text>};
 - otherwise: a text reply "echo: <last text>".
 - model names starting with "err-" return errors: err-429, err-401, err-500, err-context, err-budget.
+- the model "slow-stream", streamed, sends 40 chunks 0.2 seconds apart.
 Every request is recorded in FakeProvider.requests as (path, headers, body).
 """
 
@@ -12,6 +13,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -138,7 +140,7 @@ class FakeProvider:
                 self.end_headers()
                 self.wfile.write(raw)
 
-            def _sse(self, events: list[str]) -> None:
+            def _sse(self, events: list[str], delay: float = 0.0) -> None:
                 self.send_response(200)
                 self.send_header("content-type", "text/event-stream")
                 self.send_header("connection", "close")
@@ -147,6 +149,7 @@ class FakeProvider:
                 for e in events:
                     self.wfile.write(e.encode())
                     self.wfile.flush()
+                    time.sleep(delay)
 
             def _embeddings(self, body: dict[str, Any]) -> None:
                 # One small vector per input, its first number the input's length; 3 tokens per input.
@@ -218,6 +221,9 @@ class FakeProvider:
                                 }
                             )
                         events.append({"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]})
+                    elif body["model"].split("/")[-1] == "slow-stream":
+                        events += [{"choices": [{"index": 0, "delta": {"content": f"{i} "}}]} for i in range(40)]
+                        events.append({"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]})
                     else:
                         for word in f"echo: {text}".split(" "):
                             events.append({"choices": [{"index": 0, "delta": {"content": word + " "}}]})
@@ -253,7 +259,7 @@ class FakeProvider:
                     payload = [
                         f"data: {json.dumps({'id': 'chatcmpl-1', 'model': body['model'], **e})}\n\n" for e in events
                     ] + ["data: [DONE]\n\n"]
-                    return self._sse(payload)
+                    return self._sse(payload, 0.2 if body["model"].split("/")[-1] == "slow-stream" else 0.0)
                 message: dict[str, Any] = {"role": "assistant", "content": None if call else f"echo: {text}"}
                 if body["model"].split("/")[-1] == "response-details":
                     message.update(refusal="refused", reasoning_content="thinking")

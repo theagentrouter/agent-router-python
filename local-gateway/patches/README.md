@@ -6,6 +6,8 @@ The builder applies these to upstream v1.2.0, in this order.
 
 **`aigw-v1.2.0-mcp-session-seed.patch`.** `aigw run` always starts an MCP proxy, and upstream v1.2.0 gives it no seed, so its session keys come from a public default. The patch adds `--mcp-session-encryption-seed`, also read from `AIGW_MCP_SESSION_ENCRYPTION_SEED`, and passes it to the external processor; without it, behavior is unchanged. The local gateway sets a random seed at each start. The patch updates the `aigw run --help` test and adds one for the passed seed.
 
+**`aigw-v1.2.0-reload-on-sighup.patch`.** Upstream `aigw run` reads its config once, so the local gateway had to restart for a new route or model, and other programs' requests were cut off. With the patch, SIGHUP makes `aigw run` translate the config file again: the extension server reads the new objects, the external processor gets its new config (it checks every five seconds, so a reload waits six), and Envoy Gateway, which watches its resources folder, updates Envoy without restarting it. Values `aigw` reads from its own environment, such as provider keys, cannot change this way. `aigw run --help` says that SIGHUP reloads, which is how the SDK knows a companion can. The patch adds an upstream test for the reload.
+
 Build from the repository root with Git and Go 1.27.1 available:
 
 ```sh

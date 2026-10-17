@@ -65,12 +65,13 @@ XDS_PORT = 18000
 ENVOY_VERSION = "1.39.4"
 START_ATTEMPTS = 3  # a free port can be taken between choosing it and aigw binding it
 START_TIMEOUT = 180.0  # seconds; the first start may fetch Envoy
-LOCK_TIMEOUT = 10.0
+LOCK_TIMEOUT = 30.0  # a start or a reload holds the lock for several seconds
 # Gateway API allows at most 16 rules in one route, and aigw adds one rule of its own to each
 # AIGatewayRoute, so the per-model rules are spread over several routes of at most 15.
 RULES_PER_ROUTE = 15
 LOOPBACK = ("127.0.0.1", "::1")
 BACKENDS_READY_TIMEOUT = 15.0  # seconds to wait for Envoy to look up every route's backends
+RELOAD_TIMEOUT = 30.0  # seconds to wait for aigw to reload its config after SIGHUP
 
 # Providers the local gateway sets up. "keys": all must be set; "any": at least one must be set.
 PROVIDERS: dict[str, dict] = {
@@ -677,6 +678,19 @@ def _backends_ready(admin: int, routes: dict) -> bool:
     return True
 
 
+def _models_ready(admin: int, models: list[str]) -> bool:
+    """Whether Envoy's routes match every one of these model names: after a reload they arrive a moment later."""
+    import urllib.request
+
+    try:
+        url = f"http://{HOST}:{admin}/config_dump?resource=dynamic_route_configs"
+        with urllib.request.urlopen(url, timeout=2) as resp:
+            text = resp.read().decode("utf-8", "replace")
+    except OSError:
+        return False
+    return all(json.dumps(m) in text for m in models)
+
+
 def _alive(pid: int) -> bool:
     if pid <= 1:
         return False
@@ -936,6 +950,8 @@ def _start(providers: list[str], models: list[str], routes: dict | None = None) 
         "routes_fingerprint": routes_mod.fingerprint(routes),
         "versions": versions(),
         "credential_fingerprints": _credential_fingerprints(providers, env),
+        "reload": _reloads(),
+        "config_env": _config_env(env),
     }
     try:
         admin = _envoy_admin(log_path) if routes else None
@@ -1025,6 +1041,73 @@ def serves(state: dict | None, model: str, current: dict) -> bool:
     return model in state.get("models", []) and model not in state.get("routes", [])
 
 
+def _reloads() -> bool:
+    """Whether this aigw reloads its config on SIGHUP. One that does not would stop on the signal."""
+    try:
+        out = subprocess.run([_binary(), "run", "--help"], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "SIGHUP reloads" in out.stdout + out.stderr
+
+
+def _config_env(env: dict[str, str]) -> dict[str, str]:
+    """The settings config_yaml reads besides keys: provider addresses and the AWS region."""
+    return {k: v for k, v in env.items() if k.endswith("_BASE_URL") or k in ("AWS_REGION", "AWS_DEFAULT_REGION")}
+
+
+def _reload_results(log_path: Path) -> list[str]:
+    return [line for line in log_path.read_text(errors="replace").splitlines() if "configuration reload" in line]
+
+
+def _reload(state: dict, models: list[str], routes: dict) -> dict:
+    """Give the running gateway a new config with SIGHUP, so other programs' calls, streams included, continue.
+
+    aigw keeps the environment it started with, so the config is written from the settings recorded at start,
+    and only models and routes of providers it already runs can be added this way.
+    """
+    from . import routes as routes_mod
+
+    home = folder()
+    log_path = home / "aigw.log"
+    (home / "config.yaml").write_text(
+        config_yaml(state["providers"], state.get("config_env", {}), state["port"], models, routes)
+    )
+    before = len(_reload_results(log_path))
+    os.kill(int(state["pid"]), signal.SIGHUP)
+    deadline = time.monotonic() + RELOAD_TIMEOUT
+    while len(results := _reload_results(log_path)) == before:
+        if not _alive(int(state["pid"])):
+            raise exceptions.APIConnectionError(
+                f"the local gateway stopped while reloading its config (log: {log_path})"
+            )
+        if time.monotonic() > deadline:
+            raise exceptions.Timeout(f"the local gateway did not reload its config within {RELOAD_TIMEOUT:.0f}s")
+        time.sleep(0.1)
+    if "failed" in results[-1]:
+        raise exceptions.APIConnectionError(f"the local gateway could not reload its config: {results[-1]}")
+    added = [m for m in models if m not in state.get("models", [])]
+    admin = _envoy_admin(log_path)
+    if admin:
+        ready_by = time.monotonic() + BACKENDS_READY_TIMEOUT
+        while time.monotonic() < ready_by and not (_models_ready(admin, added) and _backends_ready(admin, routes)):
+            time.sleep(0.2)
+        # Unresolved backend hosts are tolerated, as at start; missing model rules would only return 404 later.
+        if not _models_ready(admin, added):
+            raise exceptions.Timeout(
+                f"the local gateway reloaded, but Envoy did not get the new models within {BACKENDS_READY_TIMEOUT:.0f}s"
+            )
+    if not _alive(int(state["pid"])) or not _listening(int(state["port"])):
+        raise exceptions.APIConnectionError(f"the local gateway stopped after reloading its config (log: {log_path})")
+    state = {
+        **state,
+        "models": models,
+        "routes": sorted(routes),
+        "routes_fingerprint": routes_mod.fingerprint(routes),
+    }
+    _write_state(state)
+    return state
+
+
 def ensure(model: str) -> dict:
     """The running gateway with a rule for this model name or route, starting or restarting it.
 
@@ -1043,6 +1126,15 @@ def ensure(model: str) -> dict:
                 f"unknown local model {model!r}; check the name or register_model() before using a custom model",
                 model=model,
             )
+        needed = {m.split("/", 1)[0] for route in current.values() for m in route.models}
+        if model not in current:
+            needed.add(model.split("/", 1)[0])
+        if state and state.get("reload") and state.get("versions") == versions():
+            running_providers = state.get("providers", [])
+            if needed <= set(running_providers):
+                seen = set(state.get("models", []))
+                extra = {model} if model not in current else set()
+                return _reload(state, routed_models(running_providers, seen | extra), current)
         if state and state.get("versions") != versions():
             raise exceptions.BadRequestError(
                 "the local gateway was started by another SDK version; stop it explicitly when other programs "

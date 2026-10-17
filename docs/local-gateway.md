@@ -24,8 +24,8 @@ The macOS arm64 wheel is about 80 MB compressed (the program itself is 281 MB). 
 
 1. `api_base` on the call: that endpoint, in the provider's own format (LiteLLM's argument).
 2. A gateway set with `AGENTROUTER_BASE_URL` (or `config.json`).
-3. A route name: the local gateway's route for it. The running gateway is used only if it has this computer's current routes (`routes_fingerprint` in `state.json`); otherwise it restarts. With `AGENTROUTER_AUTOSTART=0`, a running gateway that already has the route is still used.
-4. Anything else: the running local gateway, if it has a rule for this name and the name was not a route when it started (`local_gateway.serves`); otherwise the gateway is started or restarted with this model, if installed and `AGENTROUTER_AUTOSTART` is not `0`. Otherwise an error says to set `AGENTROUTER_BASE_URL`. An `api_key=` here cannot reach the provider (the gateway holds the keys), so it warns once.
+3. A route name: the local gateway's route for it. The running gateway is used only if it has this computer's current routes (`routes_fingerprint` in `state.json`); otherwise it reloads (see Reloading) or restarts. With `AGENTROUTER_AUTOSTART=0`, a running gateway that already has the route is still used.
+4. Anything else: the running local gateway, if it has a rule for this name and the name was not a route when it started (`local_gateway.serves`); otherwise the gateway is started, reloaded or restarted with this model, if installed and `AGENTROUTER_AUTOSTART` is not `0`. Otherwise an error says to set `AGENTROUTER_BASE_URL`. An `api_key=` here cannot reach the provider (the gateway holds the keys), so it warns once.
 
 ## Starting and stopping
 
@@ -39,7 +39,7 @@ State lives in `AGENTROUTER_HOME/local-gateway/`: `config.yaml`, `state.json` (p
 
 `local_gateway.stop()` stops it; the docs give it as a `python -c` line, since there is no command (see Open). `state.json` records the SDK and companion versions. Existing rules are reused across versions; configuration changes require an explicit stop if another version started the process. Unknown models cannot restart an existing process; register custom models first.
 
-The start lock times out after 10 seconds. The SDK checks that its runtime directory is owned by the current user, rejects symlinks, and sets mode 0700. It writes state atomically with mode 0600 immediately after spawning, so an interrupted start can be stopped and reaped. Stop removes generated key/state files once the process has stopped. Credential fingerprints detect supplied key changes; reloading requires an explicit stop after other programs finish. A process with no provider key can continue using an already configured provider, but cannot reconfigure the gateway while dropping its credentials.
+The start lock times out after 30 seconds, since a start or a reload holds it for several seconds. The SDK checks that its runtime directory is owned by the current user, rejects symlinks, and sets mode 0700. It writes state atomically with mode 0600 immediately after spawning, so an interrupted start can be stopped and reaped. Stop removes generated key/state files once the process has stopped. Credential fingerprints detect supplied key changes; reloading requires an explicit stop after other programs finish. A process with no provider key can continue using an already configured provider, but cannot reconfigure the gateway while dropping its credentials.
 
 ## Config
 
@@ -58,13 +58,17 @@ The SDK writes the resources `aigw run` reads: a `GatewayClass` and `Gateway` at
 
 Azure OpenAI and Google Vertex AI are not set up yet. A call to them says so.
 
+## Reloading
+
+A companion whose `aigw run --help` says that SIGHUP reloads (the bundled patched build) records `reload` in `state.json`. When a call needs a route or model the running gateway lacks, and every provider it needs is already running, the SDK writes the new `config.yaml` from the settings recorded at start, sends SIGHUP, waits for `Envoy AI Gateway configuration reloaded` in `aigw.log` (about six seconds) and for the route's backends, then updates `state.json`. Envoy keeps running, so other programs' requests and streams continue. A reload that fails raises with `aigw`'s line; a companion that cannot reload is restarted as before.
+
 ## Routing
 
 The SDK sends the model name as the caller wrote it (`bedrock/anthropic.claude-sonnet-4-5`, `claude-sonnet-4-5`), on the same paths and in the same formats as to a gateway you set. There is no SDK-only header: the local gateway is stock Agent Router, and the same config serves a gateway that a team runs elsewhere.
 
 `aigw` routes on the model name as it is sent and cannot strip a `bedrock/` prefix. So the config has **one route rule per model**. Each rule matches the full name in the `x-ai-eg-model` header that `aigw` sets from the request, and for OpenAI and Anthropic the name without a provider too (`gpt-4o-mini`, `claude-sonnet-4-5`, as LiteLLM and Agent Router Enterprise write them). It passes the provider its own name with `modelNameOverride`.
 
-- The rules cover the bundled model list for the providers whose keys are set. A new model added to a running gateway must be explicitly registered. Known configuration changes can restart a same-version gateway; a typo cannot.
+- The rules cover the bundled model list for the providers whose keys are set. A new model added to a running gateway must be explicitly registered. Known configuration changes reload a same-version gateway, or restart one that cannot reload; a typo does neither.
 - `export_config()` writes the same config for a server, on a fixed port. A server cannot add rules on demand, so it gets the bundled list plus the models named in `models=`.
 - Gateway API allows at most 16 rules in one route, and `aigw` adds one rule of its own to each `AIGatewayRoute`. So the rules are spread over several `AIGatewayRoute`s of at most 15 (`RULES_PER_ROUTE`). A route with more never starts: `aigw` logs `HTTPRoute ... is invalid: spec.rules: Too many` only with `--debug`, and waits.
 
@@ -110,7 +114,7 @@ Run the real-provider scripts one at a time and stop the gateway between them: s
 3. **Windows and Intel macOS have no program.** Upstream provides macOS arm64 and Linux amd64/arm64 binaries only; those computers get the fallback wheel. The start lock and the route lock are POSIX only.
 4. **Envoy is downloaded on first start** into `~/.local/share/aigw` (about 100 MB, and older versions stay). The SDK sets `ENVOY_VERSION` (`local_gateway.ENVOY_VERSION`, the 1.39 line that Envoy Gateway v1.9 targets) unless it is already set; without it `aigw` takes the newest Envoy, and Envoy 1.40.0 does not start on macOS 14. To ship it in the wheel, test `aigw run` with a pre-filled `AIGW_DATA_HOME` and no network.
 5. **Cross-process credential merging is not implemented.** Reconfiguration is refused unless the caller has credentials for every provider already running. A provider is no longer silently dropped.
-6. **Every route change restarts the gateway**, because `aigw` reads its config once at start.
+6. **A new provider still restarts the gateway.** A new route or model reloads it (see Reloading), but provider keys come from the environment `aigw` started with, so a provider it does not run needs a restart.
 7. **Backends at an IP address cannot fall back** correctly until Agent Router labels each backend on its own (see "Routes").
 8. **Bedrock with real AWS credentials**, including `AWS_PROFILE`, is untested.
 9. **Azure OpenAI and Google Vertex AI** are not set up.
