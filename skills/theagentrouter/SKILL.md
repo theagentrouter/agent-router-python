@@ -70,4 +70,4 @@ install_as_litellm()
 
 `image_generation`, `transcription`, `speech`, `text_completion`, LiteLLM's built-in logging integrations and its cache. Do not invent them; say they are not supported.
 
-Full docs: `docs/usage.md`, `docs/frameworks.md` and `examples/` in the theagentrouter repository, or `llms-full.txt` at its root.
+Full docs: `docs/usage.md`, `docs/frameworks.md` and `examples/` in the theagentrouter repository.

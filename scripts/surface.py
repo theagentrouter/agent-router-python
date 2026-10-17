@@ -3,8 +3,7 @@
     python3 scripts/surface.py            # print it
     python3 scripts/surface.py --write    # record it in surface.txt after a deliberate change
 
-tests/test_surface.py fails when the package and surface.txt disagree. The Enterprise SDK
-checks itself against the same file: everything listed must stay present and unchanged.
+tests/test_surface.py fails when the package and surface.txt disagree.
 """
 
 from __future__ import annotations

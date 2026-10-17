@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Instructions for coding agents (and people) working in this repository. `CLAUDE.md` points here.
+Instructions for coding agents (and people) working in this repository. `CLAUDE.md` imports this file.
 
 ## What this is
 
@@ -34,10 +34,15 @@ It never calls a provider itself: every call goes to an Agent Router gateway, th
 1. **Keep LiteLLM's API.** Same function names, arguments, response fields and error names. A framework that works with LiteLLM must work after `install_as_litellm()`.
 2. **No provider code beyond the two formats.** The SDK never calls a provider; a new provider is one row in `local_gateway.PROVIDERS` (its `aigw` schema, address and key variables), which the local gateway's config is written from. Anything that needs translation belongs in the gateway, not here.
 3. **One dependency.** Do not add runtime dependencies without a strong reason; `httpx` is the only one.
-4. **The public surface is a contract.** `tests/test_surface.py` fails when the surface changes. After a deliberate change, run `python scripts/surface.py --write` and say why in the change description. The Enterprise SDK checks itself against `surface.txt`: it must contain all of it, unchanged.
-5. **Never refer to the Enterprise package.** The open-source SDK must not import, mention or look for the Enterprise package (`tetrate-agentrouter`, imported as `tetrate.agentrouter`). A test checks this.
-6. **Settings come from the environment, then `AGENTROUTER_HOME/config.json`.** Do not add a second place to read them.
-7. **No secrets in tests or examples.** Tests use the fake provider in `tests/fake_provider.py`. Real-provider checks live in `scripts/smoke_real.py` and read keys from the environment.
+4. **The public surface is a contract.** `tests/test_surface.py` fails when the surface changes. After a deliberate change, run `python scripts/surface.py --write` and say why in the change description.
+5. **Settings come from the environment, then `AGENTROUTER_HOME/config.json`.** Do not add a second place to read them.
+6. **No secrets in tests or examples.** Tests use the fake provider in `tests/fake_provider.py`. Real-provider checks live in `scripts/smoke_real.py` and read keys from the environment.
+
+## The local gateway
+
+- The local gateway (`src/theagentrouter/local_gateway.py`, package in `local-gateway/`) has end-to-end tests that are skipped unless the package is installed. Before finishing a change to routing or the gateway, run `make local-gateway AIGW=/path/to/aigw`, then `pytest`: a skipped run proves nothing about the gateway. With keys in `.env`, also run `scripts/smoke_local_gateway.py`.
+- Never commit the `aigw` program (`local-gateway/src/theagentrouter_local_gateway/bin/`, git-ignored), and never write a key value into the gateway's config: it holds `${VAR}` references that `aigw` fills in from its environment.
+- The local gateway and a gateway set with `AGENTROUTER_BASE_URL` get the same requests: the model name as written, Claude in Messages under `/anthropic/v1`, the rest in OpenAI format under `/v1`. Never add an SDK-only header, and never send a gateway key as `Authorization` on a Messages call (Agent Router passes it on to Anthropic). The gateway's config has one rule per model that passes the provider its own name, spread over routes of at most 15 rules (Gateway API's limit is 16 and `aigw` adds one). Anthropic goes in its own Messages format to `/anthropic/v1/messages`, because `aigw` does not translate OpenAI to Anthropic. Details in `docs/local-gateway.md`.
 
 ## Commands
 

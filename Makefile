@@ -1,4 +1,4 @@
-.PHONY: install test lint format surface llms models smoke build release local-gateway apps apps-live
+.PHONY: install test lint format surface models smoke build release local-gateway apps apps-live
 
 install:  # theagentrouter-core (the SDK); add the local gateway with make local-gateway AIGW=...
 	python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
@@ -14,9 +14,6 @@ format:
 
 surface:
 	.venv/bin/python scripts/surface.py --write
-
-llms:  # llms.txt and llms-full.txt, from the README, docs, examples and skills
-	.venv/bin/python scripts/build_llms.py
 
 models:
 	.venv/bin/python scripts/sync_models.py

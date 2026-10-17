@@ -84,4 +84,4 @@ The first release.
 - Routes: `route(name, primary, fallbacks, retry, limit)`, `list_routes` and `remove_route`. The local gateway does the retries, the fallbacks and the request limits. Routes are saved in `~/.agentrouter/routes.json`.
 - Three packages: `theagentrouter` (the SDK and the local gateway), `theagentrouter-core` (the SDK alone, for a remote gateway) and `theagentrouter-local-gateway` (`aigw`, for macOS 13+ on Apple chips and Linux with glibc 2.36+ on x86-64 and Arm, plus a wheel with no program for every other computer).
 - A bundled model list of 228 models, for prices and model details.
-- Twenty-one numbered examples, the docs, `llms.txt` and `llms-full.txt`, and two agent skills.
+- Twenty-one numbered examples, the docs, and two agent skills.

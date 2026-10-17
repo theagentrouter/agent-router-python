@@ -16,13 +16,3 @@ def test_surface_matches_record():
     found = surface_script.surface()
     assert not recorded - found, f"missing or changed: {sorted(recorded - found)}"
     assert not found - recorded, f"new, not recorded (run scripts/surface.py --write): {sorted(found - recorded)}"
-
-
-# The Enterprise SDK is `pip install tetrate-agentrouter`, imported as `tetrate.agentrouter`.
-ENTERPRISE_NAMES = ("tetrate-agentrouter", "tetrate.agentrouter", "from tetrate import", "agentrouter_enterprise")
-
-
-def test_open_source_sdk_never_refers_to_enterprise():
-    package = ROOT / "src" / "theagentrouter"
-    hits = [str(p) for p in package.rglob("*.py") if any(name in p.read_text() for name in ENTERPRISE_NAMES)]
-    assert not hits, hits

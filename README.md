@@ -160,7 +160,6 @@ Installing from source, checking the install, upgrading and removing: [docs/inst
 
 ## For coding agents
 
-- [`llms.txt`](llms.txt) and [`llms-full.txt`](llms-full.txt): the docs and examples in the [llms.txt](https://llmstxt.org) format, for coding agents and AI search.
 - [`skills/`](skills/): agent skills (`SKILL.md`). [`migrate-from-litellm`](skills/migrate-from-litellm/SKILL.md) moves a project off LiteLLM; [`theagentrouter`](skills/theagentrouter/SKILL.md) writes new code with the SDK. Copy a folder into your agent's skills folder (for Claude Code, `.claude/skills/`), then ask it to "migrate this project from LiteLLM to theagentrouter".
 
 ## More

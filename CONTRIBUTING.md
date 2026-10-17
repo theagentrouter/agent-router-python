@@ -14,6 +14,21 @@ Thank you for helping. Small, focused pull requests are easiest to review.
 3. Run `pytest`, `ruff check .` and `ruff format --check .`.
 4. If you changed the public API on purpose, run `python scripts/surface.py --write` and explain why in the pull request.
 5. Add a line to `CHANGELOG.md` under "Unreleased" if users will notice the change.
+6. Sign off every commit with `git commit -s`.
+
+## Sign-off
+
+Every commit needs a `Signed-off-by: Your Name <you@example.com>` line, with your real name. It certifies the [Developer Certificate of Origin](https://developercertificate.org/): you wrote the change, or have the right to submit it under this project's license. `git commit -s` adds the line.
+
+## Using AI tools
+
+You may use AI tools to help write code, tests and docs, as [Agent Router](https://github.com/theagentrouter/agent-router/blob/main/CONTRIBUTING.md) allows. You must:
+
+- understand every change you submit;
+- answer review questions and revise the code yourself;
+- say in the pull request that an AI tool was used;
+- make sure the tool adds no license terms beyond the [Apache License 2.0](LICENSE);
+- remove comments that only help the tool and do not help a reader.
 
 ## Adding a provider
 

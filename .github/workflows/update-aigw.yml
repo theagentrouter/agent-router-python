@@ -62,7 +62,7 @@ jobs:
             echo
             echo "Before merging, update the files that still name $current:"
             echo
-            git grep -n -F "$current" -- . ":!$MANIFEST" ":!llms-full.txt" | cut -d: -f1,2 | sed 's/^/- /'
+            git grep -n -F "$current" -- . ":!$MANIFEST" | cut -d: -f1,2 | sed 's/^/- /'
           } > body.md
           gh pr create --head "$branch" --title "Update aigw to $latest" --body-file body.md
 

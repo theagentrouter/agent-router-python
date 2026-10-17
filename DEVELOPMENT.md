@@ -13,7 +13,7 @@
 | [`examples/`](examples/) | Runnable examples |
 | [`apps/`](apps/) | Two apps written against LiteLLM (a Google ADK agent and plain LiteLLM code), tested on real LiteLLM and on this SDK |
 | [`docs/`](docs/) | The documentation linked from the README |
-| [`skills/`](skills/) | Agent skills; `llms.txt` and `llms-full.txt` at the root are built from the docs, examples and skills by `make llms` |
+| [`skills/`](skills/) | Agent skills |
 
 ## Set up
 
@@ -129,15 +129,13 @@ To build the wheel for this computer's platform: `.venv/bin/python -m build --wh
 
 `surface.txt` lists every public function with its arguments, every public class, and every setting. `tests/test_surface.py` fails when the package and the file disagree.
 
-`llms.txt` and `llms-full.txt` are built from the README, `docs/`, `examples/` and `skills/` by `make llms` (`scripts/build_llms.py`). `tests/test_llms.py` fails when they are out of date, so run `make llms` after changing any of those. Their links use `Homepage` in `pyproject.toml`; change it when the repository moves.
-
 After a deliberate change:
 
 ```sh
 .venv/bin/python scripts/surface.py --write
 ```
 
-Explain the change in the pull request. Removing or changing an item breaks users and the Enterprise SDK, which must contain the whole surface unchanged.
+Explain the change in the pull request: removing or changing an item breaks code that uses it.
 
 ## The model table
 
@@ -165,7 +163,7 @@ Three packages always use the same version: `theagentrouter-core` (the SDK, the 
 3. Run `make release V=X.Y.Z`, from a clean working tree. It changes the version in the three `pyproject.toml` files, the exact pins between the packages and both `__init__.py` files, and turns `## Unreleased` into `## [X.Y.Z] - <today>`. Then it runs `scripts/check_release.py --tag vX.Y.Z`, ruff and pytest, and puts the files back if any of them fails. If they pass, it commits `Release X.Y.Z`, creates the annotated tag `vX.Y.Z` and prints the push commands. It never pushes. `AMEND=1` folds the release into the last commit instead of making a new one.
 4. Run `python scripts/fetch_aigw.py` on each supported platform. It downloads only the pinned upstream release and refuses a checksum mismatch. Run `python -m build` for the SDK, `python -m build packages/theagentrouter --outdir dist` for `theagentrouter`, and `python -m build --wheel local-gateway` for the companion. Build the fallback companion once, from a checkout with no program in `local-gateway/src/theagentrouter_local_gateway/bin/`: `AGENTROUTER_NO_BINARY_WHEEL=1 python -m build --wheel local-gateway`. The companion is distributed as wheels only; building it from a source checkout requires a binary first.
 5. Check the distributions with `python -m twine check --strict dist/* local-gateway/dist/*`. In one fresh environment install `theagentrouter` (it must bring in the other two); in another install `theagentrouter-core` (it must not bring in the companion); in a third, offered only the fallback wheel, install `theagentrouter` (it must succeed, and `theagentrouter.local_gateway.installed()` must be False). Run `pip check` in both, and the fake-provider and local gateway tests against the installed wheels.
-6. Push the reviewed source to [`theagentrouter/agent-router-python`](https://github.com/theagentrouter/agent-router-python) when authorized. Before the first publication, configure a pending PyPI trusted publisher for **each** project, with owner `theagentrouter`, repository `agent-router-python` and workflow `release.yml`. Each project has its own environment, because PyPI accepts only one pending publisher per owner, repository, workflow and environment:
+6. Push the reviewed source to [`theagentrouter/agent-router-python`](https://github.com/theagentrouter/agent-router-python). Each PyPI project has a trusted publisher with owner `theagentrouter`, repository `agent-router-python`, workflow `release.yml` and its own GitHub environment:
 
    | PyPI project | Environment |
    |---|---|
@@ -173,8 +171,8 @@ Three packages always use the same version: `theagentrouter-core` (the SDK, the 
    | `theagentrouter-core` | `pypi-core` |
    | `theagentrouter-local-gateway` | `pypi-local-gateway` |
 
-   GitHub creates the three environments on the first release run; add reviewers to them under Settings → Environments if releases need approval. PyPI setup requires the owner's authenticated account; it cannot be inferred from the workflow file.
-7. Push the commit, then the tag, when publication is authorized; `make release` printed both commands. `release.yml` runs the full CI workflow, checks the tag, and downloads the SDK distributions and all four companion wheels: three with `aigw` and the `py3-none-any` fallback without it. It publishes in dependency order through trusted publishing, one job per package: the companion, then `theagentrouter-core`, then `theagentrouter`, so each package's dependencies exist when it goes up.
+   Add reviewers to these environments under Settings → Environments if releases need approval. Changing a trusted publisher needs the PyPI project owner's account.
+7. Push the commit, then the tag; `make release` printed both commands. `release.yml` runs the full CI workflow, checks the tag, and downloads the SDK distributions and all four companion wheels: three with `aigw` and the `py3-none-any` fallback without it. It publishes in dependency order through trusted publishing, one job per package: the companion, then `theagentrouter-core`, then `theagentrouter`, so each package's dependencies exist when it goes up.
 
 `.github/workflows/local-gateway-build.yml` builds and tests companion wheels on macOS 13+ arm64 and Linux amd64/arm64, running every test that starts the real `aigw` (`test_local_gateway.py`, `test_routes.py`, `test_embeddings.py`, `test_go_live.py`). This includes refusing calls from a network address while allowing loopback calls. It fails if any of them is skipped. Its `fallback` job builds the `py3-none-any` companion with no program and checks that the SDK then reports no local gateway. There are no Windows or Intel macOS companion wheels with a program: pip installs the fallback there, so `pip install theagentrouter` gives the SDK alone. `theagentrouter-core` installs on every supported Python platform.
 

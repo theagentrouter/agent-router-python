@@ -2,7 +2,7 @@
 
 ## Reporting a problem
 
-Please do not open a public issue for a security problem. Use GitHub's private vulnerability reporting: the **Security** tab of this repository, then **Report a vulnerability**.
+Please do not open a public issue for a security problem. Use GitHub's private vulnerability reporting: the **Security** tab of this repository, then **Report a vulnerability**. Or email [TODO: add the security contact address].
 
 Include the version, what an attacker could do, and steps to reproduce. We will reply to confirm we received it.
 
@@ -18,4 +18,4 @@ Only the latest release gets security fixes while the SDK is below 1.0.
 
 ## What the SDK does with your keys
 
-Provider keys are read from the environment, from `api_key` on a call, or from `AGENTROUTER_HOME/config.json`. They are sent only to the address the call goes to: the provider, `api_base`, or the gateway set in `AGENTROUTER_BASE_URL`. The SDK does not log them and sends no telemetry.
+The SDK never calls a provider itself. Provider keys are read from the environment and passed to the local gateway's process, which sends each key only to its own provider; the gateway's config holds references to the keys, not the keys. A gateway key, from `api_key` on a call, `AGENTROUTER_API_KEY` or `AGENTROUTER_HOME/config.json`, is sent only to the gateway the call goes to: `api_base`, the gateway set in `AGENTROUTER_BASE_URL`, or the gateway stored with that key. The SDK does not log keys and sends no telemetry.
