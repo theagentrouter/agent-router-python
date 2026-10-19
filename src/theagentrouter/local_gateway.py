@@ -70,6 +70,7 @@ LOCK_TIMEOUT = 30.0  # a start holds the lock for several seconds
 RULES_PER_ROUTE = 15
 LOOPBACK = ("127.0.0.1", "::1")
 BACKENDS_READY_TIMEOUT = 15.0  # seconds to wait for Envoy to look up every route's backends
+AZURE_API_VERSION = "2024-10-21"  # Azure OpenAI's generally available version; AZURE_API_VERSION overrides it
 
 # Providers the local gateway sets up. "keys": all must be set; "any": at least one must be set.
 PROVIDERS: dict[str, dict] = {
@@ -95,6 +96,8 @@ PROVIDERS: dict[str, dict] = {
     "deepseek": {"schema": "OpenAI", "base": "https://api.deepseek.com/v1", "keys": ["DEEPSEEK_API_KEY"]},
     "together": {"schema": "OpenAI", "base": "https://api.together.xyz/v1", "keys": ["TOGETHER_API_KEY"]},
     "bedrock": {"schema": "AWSBedrock", "any": ["AWS_PROFILE", "AWS_ACCESS_KEY_ID"]},
+    # LiteLLM's settings. The model name after azure/ is the deployment, which aigw puts in the path.
+    "azure": {"schema": "AzureOpenAI", "keys": ["AZURE_API_KEY", "AZURE_API_BASE"], "base_variable": "AZURE_API_BASE"},
 }
 
 
@@ -124,6 +127,19 @@ def _aws_region(env: dict[str, str]) -> str | None:
     if region and not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)+", region):
         raise exceptions.BadRequestError("AWS_REGION must be an AWS region name, for example us-east-1")
     return region
+
+
+def _azure_version(env: dict[str, str]) -> str:
+    version = env.get("AZURE_API_VERSION") or AZURE_API_VERSION
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}(?:-preview)?", version):
+        raise exceptions.BadRequestError(
+            "AZURE_API_VERSION must be an Azure OpenAI API version, for example 2024-10-21"
+        )
+    return version
+
+
+def _base_variable(provider: str) -> str:
+    return PROVIDERS[provider].get("base_variable") or f"{provider.upper()}_BASE_URL"
 
 
 def missing(provider: str, env: dict[str, str]) -> str | None:
@@ -292,8 +308,8 @@ spec:
             region = _aws_region(env)
             host, ep_port, tls, version = f"bedrock-runtime.{region}.amazonaws.com", 443, True, ""
         else:
-            variable = f"{name.split('-')[0].upper()}_BASE_URL"
-            base = env.get(variable) or spec["base"]
+            variable = _base_variable(name.split("-")[0])
+            base = env.get(variable) or spec.get("base", "")
             parts = urlsplit(base)
             if parts.scheme not in ("http", "https") or not parts.hostname or parts.username or parts.password:
                 raise exceptions.BadRequestError(f"{variable} needs an HTTP(S) URL without credentials")
@@ -305,6 +321,8 @@ spec:
                 version = ""
             if spec["schema"] == "Anthropic":
                 version = ""
+            if spec["schema"] == "AzureOpenAI":
+                version = _azure_version(env)  # aigw writes the whole path, /openai/deployments/...
         address = f"ip:\n        address: {host}" if _is_ip(host) else f"fqdn:\n        hostname: {host}"
         docs.append(
             f"""apiVersion: gateway.envoyproxy.io/v1alpha1
@@ -363,9 +381,10 @@ spec:
   awsCredentials:
     region: {_aws_region(env)}"""
         else:
-            kind, field = (
-                ("AnthropicAPIKey", "anthropicAPIKey") if spec["schema"] == "Anthropic" else ("APIKey", "apiKey")
-            )
+            kind, field = {
+                "Anthropic": ("AnthropicAPIKey", "anthropicAPIKey"),
+                "AzureOpenAI": ("AzureAPIKey", "azureAPIKey"),
+            }.get(spec["schema"], ("APIKey", "apiKey"))
             policy = f"""  type: {kind}
   {field}:
     secretRef:
@@ -490,6 +509,8 @@ def export_config(
         raise exceptions.BadRequestError(
             "bedrock needs AWS_REGION or AWS_DEFAULT_REGION set: the config names the region"
         )
+    if "azure" in chosen and not env.get("AZURE_API_BASE"):
+        raise exceptions.BadRequestError("azure needs AZURE_API_BASE set: the config names the endpoint")
     extra = set(models or ())
     bare = sorted(m for m in extra if "/" not in m)
     if bare:
@@ -661,8 +682,8 @@ def _backend_address(backend: str) -> tuple[str, int]:
     spec = PROVIDERS[provider]
     if spec["schema"] == "AWSBedrock":
         return f"bedrock-runtime.{_aws_region(dict(os.environ))}.amazonaws.com", 443
-    base = os.environ.get(f"{provider.upper()}_BASE_URL") or (
-        spec["openai_base"] if backend.endswith("-openai") else spec["base"]
+    base = os.environ.get(_base_variable(provider)) or (
+        spec["openai_base"] if backend.endswith("-openai") else spec.get("base", "")
     )
     host, port, _, _ = _endpoint(base)
     return ("localhost" if host in LOOPBACK else host), port

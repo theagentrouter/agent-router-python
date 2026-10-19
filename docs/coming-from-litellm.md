@@ -71,7 +71,7 @@ These `completion` arguments work in LiteLLM but do nothing in theagentrouter. C
 | `caching`, `cache` | A gateway caches |
 | `metadata`, `tags`, `callbacks`, `logger_fn` (as arguments on one call) | The gateway's request logs record calls; for callbacks, set the module's lists ([Callbacks](usage.md#callbacks)) |
 | `custom_llm_provider` | Name the provider in the model, for example `openai/gpt-5.4-mini` |
-| `api_version` | Azure OpenAI goes through a gateway |
+| `api_version` | Set `AZURE_API_VERSION` where the gateway starts |
 
 A value that asks for nothing does not warn. Other unknown completion arguments warn instead of disappearing silently.
 

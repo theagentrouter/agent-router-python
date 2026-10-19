@@ -30,7 +30,7 @@ IGNORED: dict[str, str] = {
     "callbacks": "the gateway's request logs record calls",
     "logger_fn": "the gateway's request logs record calls",
     "custom_llm_provider": "name the provider in the model, for example openai/gpt-4o-mini",
-    "api_version": "Azure OpenAI goes through a gateway",
+    "api_version": "set AZURE_API_VERSION where the gateway starts",
 }
 _warned: set[str] = set()
 

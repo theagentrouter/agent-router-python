@@ -4,6 +4,10 @@ All notable changes to this project are listed here. The format follows [Keep a 
 
 ## [Unreleased]
 
+### Added
+
+- Azure OpenAI through the local gateway: set `AZURE_API_KEY` and `AZURE_API_BASE` (and `AZURE_API_VERSION` for a version other than `2024-10-21`), then call `azure/<deployment>`. `max_tokens` reaches Azure as `max_completion_tokens`, as for OpenAI. Exported configuration includes Azure.
+
 ### Changed
 
 - The local gateway package carries the published Agent Router `aigw` v1.2.0 again instead of a build with local patches.

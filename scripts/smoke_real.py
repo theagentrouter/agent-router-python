@@ -21,6 +21,9 @@ MODELS = {
     "ANTHROPIC_API_KEY": "anthropic/claude-haiku-5-5",
     "GEMINI_API_KEY": "gemini/gemini-2.5-flash",
     "GROQ_API_KEY": "groq/llama-3.3-70b-versatile",
+    "AWS_ACCESS_KEY_ID": "bedrock/us.anthropic.claude-haiku-5-5",  # with AWS_SECRET_ACCESS_KEY and AWS_REGION
+    # With AZURE_API_BASE; the name after azure/ is your deployment (AGENTROUTER_SMOKE_AZURE_MODEL).
+    "AZURE_API_KEY": os.environ.get("AGENTROUTER_SMOKE_AZURE_MODEL", "azure/gpt-5.1"),
 }
 TOOLS = [
     {

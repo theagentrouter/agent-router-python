@@ -45,6 +45,9 @@ Every call goes through a gateway: the local gateway (Agent Router on this compu
 | `deepseek/` | `DEEPSEEK_API_KEY` |
 | `together/` | `TOGETHER_API_KEY` |
 | `bedrock/` | `AWS_PROFILE`, or `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; and `AWS_REGION` |
+| `azure/` | `AZURE_API_KEY` and `AZURE_API_BASE` (your resource's endpoint); `AZURE_API_VERSION` if you need a version other than `2024-10-21` |
+
+For Azure OpenAI, the name after `azure/` is your deployment's name: `azure/gpt-5-mini` calls the deployment `gpt-5-mini`. As with Bedrock, the bundled model list has none of these names, so a second deployment needs `register_model` before a running gateway can take it (see [Adding models](#adding-models)).
 
 `api_key=` on a call is used in two cases: with `api_base=`, as the key for that endpoint, and with a gateway you set, as that gateway's key. With the local gateway it has no effect and warns once, because the local gateway reads provider keys from the environment when it starts.
 
@@ -337,6 +340,8 @@ The port changes from start to start, so another Agent Router gateway on 1975 (y
 - `AGENTROUTER_AUTOSTART=0` stops the SDK from starting it.
 - A gateway set with `AGENTROUTER_BASE_URL` always wins, and then the SDK starts nothing.
 - Its files, including its log `aigw.log`, are in `~/.agentrouter/local-gateway/`.
+- The very first start downloads Envoy (about 100 MB, into `~/.local/share/aigw`), so it needs the internet and can take a minute.
+- Adding a model or provider needs the keys of every provider already running; without them the SDK raises and leaves the gateway running.
 - It keeps running after your program ends. To stop it: `python -c "from theagentrouter import local_gateway; local_gateway.stop()"`. The next call starts it again.
 - To load a new SDK version or a rotated provider key, stop it when other programs have finished; the next call starts it again.
 
@@ -345,6 +350,7 @@ The local gateway is for development. Its known limits, such as a new route, mod
 | Provider | Set in the environment |
 |---|---|
 | AWS Bedrock | `AWS_PROFILE`, or `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; and `AWS_REGION` |
+| Azure OpenAI | `AZURE_API_KEY` and `AZURE_API_BASE`; optionally `AZURE_API_VERSION` |
 | OpenAI, Anthropic, Gemini, Groq, Mistral, DeepSeek, Together | The key from [Models and keys](#models-and-keys) |
 
 ### Routes: fallbacks, retries and names of your own

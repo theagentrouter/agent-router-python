@@ -66,8 +66,9 @@ def build_body(
     for key in PASSTHROUGH:
         if params.get(key) is not None:
             body[key] = params[key]
-    if provider == "openai" and "max_tokens" in body and "max_completion_tokens" not in body:
-        # OpenAI replaced max_tokens with max_completion_tokens, and its newer models refuse max_tokens.
+    if provider in ("openai", "azure") and "max_tokens" in body and "max_completion_tokens" not in body:
+        # OpenAI replaced max_tokens with max_completion_tokens, and its newer models refuse max_tokens,
+        # on Azure OpenAI too.
         body["max_completion_tokens"] = body.pop("max_tokens")
     if params.get("extra_body"):
         body.update(params["extra_body"])

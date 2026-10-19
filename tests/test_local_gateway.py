@@ -41,6 +41,9 @@ CLEARED = (
     "AWS_SECRET_ACCESS_KEY",
     "AWS_REGION",
     "AWS_DEFAULT_REGION",
+    "AZURE_API_KEY",
+    "AZURE_API_BASE",
+    "AZURE_API_VERSION",
 )
 
 
@@ -139,6 +142,8 @@ def test_export_config_for_a_team_gateway(env, monkeypatch):
         local_gateway.export_config(providers=["openai"], models=["mistral/acme-tuned"])
     with pytest.raises(exceptions.BadRequestError, match="bedrock needs AWS_REGION"):
         local_gateway.export_config(providers=["bedrock"])
+    with pytest.raises(exceptions.BadRequestError, match="azure needs AZURE_API_BASE"):
+        local_gateway.export_config(providers=["azure"])
     monkeypatch.delenv("OPENAI_API_KEY")
     monkeypatch.delenv("ANTHROPIC_API_KEY")
     with pytest.raises(exceptions.BadRequestError, match="no provider keys are set here"):
@@ -313,6 +318,26 @@ def test_unknown_model_requires_registration_before_restarting(env, monkeypatch)
     assert calls[0] == ("stop", ["openai"]) and "openai/acme-tuned" in calls[1][2]
 
 
+def test_azure_config(env, monkeypatch):
+    assert local_gateway.missing("azure", {}) == "AZURE_API_KEY and AZURE_API_BASE"
+    monkeypatch.setenv("AZURE_API_KEY", "azure-secret")
+    monkeypatch.setenv("AZURE_API_BASE", "https://acme.openai.azure.com/")
+    config = local_gateway.config_yaml(["azure"], dict(os.environ), port=1975, models=["azure/acme-deployment"])
+    assert "name: AzureOpenAI" in config and 'version: "2024-10-21"' in config
+    assert "hostname: acme.openai.azure.com" in config
+    assert "type: AzureAPIKey" in config and "azureAPIKey:" in config
+    assert "azure-secret" not in config  # the key is in a private file aigw reads
+    assert 'modelNameOverride: "acme-deployment"' in config  # the deployment, which aigw puts in the path
+    monkeypatch.setenv("AZURE_API_VERSION", "2025-04-01-preview")
+    assert 'version: "2025-04-01-preview"' in local_gateway.config_yaml(["azure"], dict(os.environ), port=1975)
+    monkeypatch.setenv("AZURE_API_VERSION", "latest\nkind: Secret")
+    with pytest.raises(exceptions.BadRequestError, match="AZURE_API_VERSION"):
+        local_gateway.config_yaml(["azure"], dict(os.environ), port=1975)
+    monkeypatch.delenv("AZURE_API_VERSION")
+    exported = local_gateway.export_config(providers=["azure"], models=["azure/acme-deployment"])
+    assert "apiKey: ${AZURE_API_KEY}" in exported and "hostname: acme.openai.azure.com" in exported
+
+
 # --- the real aigw --------------------------------------------------------------------------------
 
 needs_aigw = pytest.mark.skipif(
@@ -346,6 +371,20 @@ def real_gateway(env, fake, monkeypatch):
     monkeypatch.setenv("ACME_KEY", "acme-secret")
     yield fake
     local_gateway.stop()
+
+
+@needs_aigw
+@needs_xds_port
+def test_real_gateway_reaches_azure_openai(real_gateway, monkeypatch):
+    fake = real_gateway
+    monkeypatch.setenv("AZURE_API_KEY", "azure-secret")
+    monkeypatch.setenv("AZURE_API_BASE", fake.url[:-3])  # aigw writes the whole path
+    r = theagentrouter.completion(model="azure/acme-deployment", messages=HELLO, max_tokens=50)
+    assert r.choices[0].message.content == "echo: refunds yesterday"
+    path, headers, body = fake.requests[-1]
+    assert path == "/openai/deployments/acme-deployment/chat/completions?api-version=2024-10-21"
+    assert headers["api-key"] == "azure-secret" and "authorization" not in headers
+    assert body["max_completion_tokens"] == 50 and "max_tokens" not in body
 
 
 @needs_aigw

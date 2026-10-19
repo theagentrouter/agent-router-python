@@ -58,7 +58,7 @@ python3 -m venv .venv-agents
 
 ### Real providers
 
-`scripts/smoke_real.py` calls real providers for each key it finds in the environment. It checks a text reply, a tool call, a streamed tool call with usage, and the error for an unknown model. It costs a few cents at most.
+`scripts/smoke_real.py` calls real providers for each key it finds in the environment: OpenAI, Anthropic, Gemini, Groq, Bedrock (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`) and Azure OpenAI (`AZURE_API_KEY`, `AZURE_API_BASE`, and the deployment in `AGENTROUTER_SMOKE_AZURE_MODEL`, default `azure/gpt-5.1`; a reasoning model can spend the check's small token limits on reasoning). It checks a text reply, a tool call, a streamed tool call with usage, and the error for an unknown model. It costs a few cents at most.
 
 ```sh
 OPENAI_API_KEY=... ANTHROPIC_API_KEY=... .venv/bin/python scripts/smoke_real.py
