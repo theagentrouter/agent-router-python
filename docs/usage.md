@@ -334,13 +334,13 @@ The port changes from start to start, so another Agent Router gateway on 1975 (y
 
 - The SDK sets the gateway up from the provider keys in your environment. The gateway holds the keys: each is in a private file it reads (mode 0600), never in its config file.
 - It starts with a rule for every model in the SDK's bundled model list for those providers. Register a custom model with `register_model` before adding it to a running gateway. An unregistered model name raises `NotFoundError` and leaves the existing process running.
-- A new registered model, or a new provider whose key the caller has, restarts a same-version gateway, which interrupts other programs' requests. The caller must have credentials for every provider already running; otherwise the SDK raises and leaves the process running.
 - `AGENTROUTER_AUTOSTART=0` stops the SDK from starting it.
 - A gateway set with `AGENTROUTER_BASE_URL` always wins, and then the SDK starts nothing.
 - Its files, including its log `aigw.log`, are in `~/.agentrouter/local-gateway/`.
-- The very first start downloads Envoy (about 100 MB, into `~/.local/share/aigw`), so it needs the internet and can take a minute.
 - It keeps running after your program ends. To stop it: `python -c "from theagentrouter import local_gateway; local_gateway.stop()"`. The next call starts it again.
-- After an upgrade, existing gateway rules keep working. Stop the gateway explicitly when other programs finish to load the new version. After you rotate a provider key, calls from a program with the new key raise until the gateway is stopped; the next call starts it with that program's keys.
+- To load a new SDK version or a rotated provider key, stop it when other programs have finished; the next call starts it again.
+
+The local gateway is for development. Its known limits, such as a new route, model or provider restarting it and interrupting other programs, are listed in [How the local gateway works](local-gateway.md#known-limits).
 
 | Provider | Set in the environment |
 |---|---|
@@ -371,10 +371,10 @@ The local gateway does the retries and the fallbacks, as Agent Router Enterprise
 - **Fallback:** when a tier still fails with one of those codes, or cannot be reached, the gateway moves to the next tier. A stream falls back only before its reply starts.
 - **Sharing:** `primary=["openai/gpt-5.4", "openai/gpt-5.4-mini"]` puts two models in one tier, which share the traffic. A fallback can be a list too.
 - `served_by` is read from the model name in the reply, so it is missing when a provider answers with a name that does not start with the model's own.
-- Routes are kept in `~/.agentrouter/routes.json` and shared by every program on the computer, like the local gateway. Defining a route again replaces it; `ar.list_routes()` and `ar.remove_route(name)` list and remove them. A changed route restarts the gateway on the next call that needs it, which interrupts other programs' requests.
+- Routes are kept in `~/.agentrouter/routes.json` and shared by every program on the computer, like the local gateway. Defining a route again replaces it; `ar.list_routes()` and `ar.remove_route(name)` list and remove them.
 - Define routes without local provider keys or a companion package when exporting configuration. The machine that starts the gateway needs credentials for every provider in the saved routes.
 - A route of Anthropic and other providers reaches Anthropic through its OpenAI-compatible endpoint.
-- **Limit:** `limit=ar.Limit(60, per="minute")` lets at most 60 requests a minute through the route; the gateway answers the rest with 429 (`RateLimitError`). `per` is `"second"`, `"minute"`, `"hour"` or `"day"`. The count covers every program on the computer that uses the route. It counts requests, not tokens: Agent Router counts tokens only with a Redis-backed rate-limit service, which the local gateway does not have.
+- **Limit:** `limit=ar.Limit(60, per="minute")` lets at most 60 requests a minute through the route; the gateway answers the rest with 429 (`RateLimitError`). `per` is `"second"`, `"minute"`, `"hour"` or `"day"`. The count covers every program on the computer that uses the route. It counts requests, not tokens (see [Known limits](local-gateway.md#known-limits)).
 
 LiteLLM's `Router` works on top of routes: see [Coming from LiteLLM](coming-from-litellm.md).
 

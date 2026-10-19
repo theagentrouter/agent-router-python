@@ -37,7 +37,7 @@ State lives in `AGENTROUTER_HOME/local-gateway/`: `config.yaml`, `state.json` (p
 4. A call to a provider the running gateway lacks, with that provider's key set, stops the gateway and starts it again with every provider in this program's environment. `aigw` reads its config once at start.
 5. The gateway's own ports are chosen free at each start, so another gateway on 1975 does not block it; if a chosen port is taken before `aigw` binds it, the SDK chooses again (three tries). `aigw`'s internal ports (1061, 18000) cannot move: when one is taken, the SDK names the program holding it (via `lsof`) and asks to stop it or set `AGENTROUTER_BASE_URL`.
 
-`local_gateway.stop()` stops it; the docs give it as a `python -c` line, since there is no command (see Open). `state.json` records the SDK and companion versions. Existing rules are reused across versions; configuration changes require an explicit stop if another version started the process. Unknown models cannot restart an existing process; register custom models first.
+`local_gateway.stop()` stops it; the docs give it as a `python -c` line, since there is no command (see Known limits). `state.json` records the SDK and companion versions. Existing rules are reused across versions; configuration changes require an explicit stop if another version started the process. Unknown models cannot restart an existing process; register custom models first.
 
 The start lock times out after 30 seconds, since a start holds it for several seconds. The SDK checks that its runtime directory is owned by the current user, rejects symlinks, and sets mode 0700. It writes state atomically with mode 0600 immediately after spawning, so an interrupted start can be stopped and reaped. Stop removes generated key/state files once the process has stopped. Credential fingerprints detect supplied key changes: a program whose key differs from the running gateway's is refused until the gateway is stopped with `local_gateway.stop()`; the next call starts it with that program's keys. A process with no provider key can continue using an already configured provider, but cannot reconfigure the gateway while dropping its credentials.
 
@@ -60,7 +60,7 @@ Azure OpenAI and Google Vertex AI are not set up yet. A call to them says so.
 
 The local gateway runs the `aigw` release pinned in `local-gateway/aigw-release.json`, unchanged. Everything below is done in the config the SDK writes, with what that release offers.
 
-**Callers on other computers are refused.** `aigw run` binds Envoy's listener to every address and has no setting to change it. The `SecurityPolicy` in the local config allows only `127.0.0.1/32` and `::1/128` and denies everything else with 403. Envoy Gateway matches these addresses against the connection's source address, not `X-Forwarded-For`, so a caller cannot claim to be local. A refused request never reaches a provider, so it never uses a provider key. The listener and the internal ports stay open on the network (see Open).
+**Callers on other computers are refused.** `aigw run` binds Envoy's listener to every address and has no setting to change it. The `SecurityPolicy` in the local config allows only `127.0.0.1/32` and `::1/128` and denies everything else with 403. Envoy Gateway matches these addresses against the connection's source address, not `X-Forwarded-For`, so a caller cannot claim to be local. A refused request never reaches a provider, so it never uses a provider key. The listener and the internal ports stay open on the network (see Known limits).
 
 **An exported server checks a client key.** `export_config()` adds a `SecurityPolicy` whose authorization rules allow a request only when `x-api-key` equals `${AGENTROUTER_API_KEY}`, or `Authorization` equals `Bearer ${AGENTROUTER_API_KEY}`. Everything else gets 403. `aigw` fills in the variable across the whole file when it starts. When the variable is missing or empty, the expected value becomes a line break (`${AGENTROUTER_API_KEY:-\n}`), which no request header can carry, so the server refuses every request. Each `AIServiceBackend` removes `Authorization` and `x-api-key` before the provider's own key is added, so a client key never reaches a provider. The config does not use Envoy Gateway's `apiKeyAuth`: that needs its keys in a `Secret`, and `aigw run` does not pass the `Secret`s in its config file on to Envoy Gateway.
 
@@ -113,7 +113,9 @@ A prefix-strip option in Agent Router itself would replace the per-model rules w
 
 Run the real-provider scripts one at a time and stop the gateway between them: see `DEVELOPMENT.md`.
 
-## Open
+## Known limits
+
+This is the full list. Other pages link here instead of repeating it.
 
 1. **The gateway's ports listen on every address.** Upstream Envoy Gateway binds Envoy's listeners and its own xDS (18000), wasm cache (18002) and health (8081) servers to every address, and upstream `aigw run` does the same for the MCP proxy (9856), the external processor's admin port and Envoy Gateway's metrics (19001). The `SecurityPolicy` refuses any caller whose connection does not come from `127.0.0.1` or `::1`, so the network cannot reach the provider keys; the other ports stay open. Moving them to loopback needs changes in Agent Router and Envoy Gateway.
 2. **Fixed internal ports.** `aigw run` binds fixed ports inside itself (extension server 1061, Envoy Gateway xDS 18000, health 8081, admin 19000 and others), so only one Agent Router gateway runs per computer. The SDK chooses its own listener and admin ports at each start and names the program holding 1061 or 18000. Moving the internal ones needs changes in Agent Router and Envoy Gateway.
@@ -127,3 +129,7 @@ Run the real-provider scripts one at a time and stop the gateway between them: s
 10. **No command to stop the gateway**, only `local_gateway.stop()`. Not planned for now.
 11. **A rotated provider key needs a stop.** The SDK detects that a caller's key differs from the one the gateway started with and refuses the call. Call `local_gateway.stop()` when other programs have finished; the next call starts the gateway with the new key. `aigw run` cannot load a new key without a restart.
 12. **The MCP proxy uses the public default session seed.** `aigw run` always starts an MCP proxy and has no setting for its seed. The SDK configures no MCP servers, so nothing sits behind the proxy.
+13. **A new SDK version needs a stop.** A running gateway keeps serving its rules for programs on other SDK versions, but a different version cannot reconfigure it. Call `local_gateway.stop()` when other programs have finished; the next call starts the installed version.
+14. **Routes work with the local gateway only.** With `AGENTROUTER_BASE_URL` set, `route()` refuses, and fallbacks are set up on that gateway instead.
+15. **Request limits count requests, not tokens.** Token limits need a Redis-backed rate-limit service, which `aigw run` does not have (see "Routes").
+16. **An exported server serves only the models it was exported with.** Unlike the local gateway, it cannot add a model when it is first asked for. Export again and restart the server when the models change.

@@ -146,7 +146,7 @@ With these set, calls go to that gateway, the local gateway never starts, and th
 python -c "from theagentrouter import local_gateway; local_gateway.stop()"
 ```
 
-The local gateway is for development. A new route, model or provider restarts it, which interrupts other programs, and a rotated provider key needs a stop. All known limits: [How the local gateway works](docs/local-gateway.md#open).
+The local gateway is for development. A new route, model or provider restarts it, which interrupts other programs, and a rotated provider key needs a stop. All known limits: [How the local gateway works](docs/local-gateway.md#known-limits).
 
 Installing from source, checking the install, upgrading and removing: [docs/install.md](docs/install.md).
 
@@ -158,7 +158,7 @@ Installing from source, checking the install, upgrading and removing: [docs/inst
 | [Usage](docs/usage.md) | Models and keys, parameters, streaming, async, tools, the Responses API, the Messages API, embeddings, errors, cost, gateways, settings |
 | [Coming from LiteLLM](docs/coming-from-litellm.md) | What works the same, what is missing, what is ignored, a checklist |
 | [Agent frameworks](docs/frameworks.md) | Google ADK and the OpenAI Agents SDK |
-| [How the local gateway works](docs/local-gateway.md) | For contributors: packages, config, routing, tests, what is open |
+| [How the local gateway works](docs/local-gateway.md) | Known limits; for contributors: packages, config, routing, tests |
 
 ## For coding agents
 
