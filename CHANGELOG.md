@@ -2,6 +2,23 @@
 
 All notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- The local gateway package carries the published Agent Router `aigw` v1.2.0 again instead of a build with local patches.
+- A new route, registered model or provider restarts the shared local gateway, which interrupts other programs' requests.
+- The local gateway's ports listen on every address again. Its `SecurityPolicy` still refuses any caller whose connection does not come from this computer.
+- The local gateway no longer sets an MCP session seed. The published `aigw` has no setting for it, and the local gateway configures no MCP servers.
+
+### Removed
+
+- `local_gateway.reload_keys()`. This breaks code that calls it, which now gets `AttributeError`. After rotating a provider key, call `local_gateway.stop()` when other programs have finished; the next call starts the gateway with the new key.
+
+### Security
+
+- Exported server configuration checks the client key with an authorization rule that works on the published `aigw`. A missing or wrong key gets 403 (was 401), a server started without `AGENTROUTER_API_KEY` refuses every request, and the client key is removed before a request reaches a provider.
+
 ## [0.1.0a6] - 2026-10-17
 
 ### Fixed

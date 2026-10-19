@@ -3,7 +3,7 @@
     OPENAI_API_KEY=... ANTHROPIC_API_KEY=... python3 scripts/smoke_examples.py
 
 The examples share one local gateway in a fresh AGENTROUTER_HOME, as they would on a developer's
-computer, so route examples reload a running gateway. gateways/your_gateway.py is pointed at that
+computer, so route examples restart a running gateway. gateways/your_gateway.py is pointed at that
 gateway as "a gateway you set". An example whose framework is not installed is skipped. The
 gateway is stopped at the end.
 
@@ -21,7 +21,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-# The order of examples/README.md; a route example reloads the gateway an earlier one started.
+# The order of examples/README.md; a route example restarts the gateway an earlier one started.
 EXAMPLES = [
     "from_litellm/change_the_import.py",
     "from_litellm/litellm_router.py",

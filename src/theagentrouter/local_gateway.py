@@ -29,7 +29,6 @@ import importlib.util
 import json
 import os
 import re
-import secrets
 import shutil
 import signal
 import socket
@@ -65,13 +64,12 @@ XDS_PORT = 18000
 ENVOY_VERSION = "1.39.4"
 START_ATTEMPTS = 3  # a free port can be taken between choosing it and aigw binding it
 START_TIMEOUT = 180.0  # seconds; the first start may fetch Envoy
-LOCK_TIMEOUT = 30.0  # a start or a reload holds the lock for several seconds
+LOCK_TIMEOUT = 30.0  # a start holds the lock for several seconds
 # Gateway API allows at most 16 rules in one route, and aigw adds one rule of its own to each
 # AIGatewayRoute, so the per-model rules are spread over several routes of at most 15.
 RULES_PER_ROUTE = 15
 LOOPBACK = ("127.0.0.1", "::1")
 BACKENDS_READY_TIMEOUT = 15.0  # seconds to wait for Envoy to look up every route's backends
-RELOAD_TIMEOUT = 30.0  # seconds to wait for aigw to reload its config after SIGHUP
 
 # Providers the local gateway sets up. "keys": all must be set; "any": at least one must be set.
 PROVIDERS: dict[str, dict] = {
@@ -207,20 +205,6 @@ def _k8s_name(name: str) -> str:
     return f"theagentrouter-route-{slug}-{hashlib.sha256(name.encode()).hexdigest()[:6]}"
 
 
-READY_PORT = 19003  # Envoy Gateway's readiness listener
-
-
-def _loopback_patch(listener: str) -> str:
-    """A JSON patch that moves one Envoy listener to 127.0.0.1."""
-    return f"""    - type: type.googleapis.com/envoy.config.listener.v3.Listener
-      name: {listener}
-      operation:
-        op: replace
-        path: /address/socket_address/address
-        value: 127.0.0.1
-"""
-
-
 def config_yaml(
     providers: list[str],
     env: dict[str, str],
@@ -228,12 +212,16 @@ def config_yaml(
     models: list[str] | None = None,
     routes: dict | None = None,
     local: bool = True,
+    strip_client_keys: bool = False,
 ) -> str:
     """The resources ``aigw run`` reads. Key values never appear; ``${VAR}`` is filled in by aigw.
 
     ``local``: answer only callers on this computer. Envoy Gateway binds every listener to all
     addresses and has no setting for that, so a policy refuses other callers with 403; without it,
     anyone on the network could use the developer's provider keys.
+
+    ``strip_client_keys``: remove the caller's ``Authorization`` and ``x-api-key`` before a request goes to
+    a provider, which then gets its own key. Used when an exported gateway checks a client key.
 
     One route rule per full model name in ``models`` (default: ``routed_models(providers)``), and one
     route per entry in ``routes`` (name -> routes.Route): its models in priority order, plus a retry policy.
@@ -291,23 +279,6 @@ spec:
             - 127.0.0.1/32
             - ::1/128"""
         )
-        # Envoy Gateway binds Envoy's listeners to every address. With the bundled aigw, which lets a config
-        # patch Envoy, they move to loopback; an aigw that does not ignores this, and the policy above still refuses.
-        docs.append(
-            f"""apiVersion: gateway.envoyproxy.io/v1alpha1
-kind: EnvoyPatchPolicy
-metadata:
-  name: this-computer-only-listeners
-  namespace: default
-spec:
-  targetRef:
-    group: gateway.networking.k8s.io
-    kind: Gateway
-    name: theagentrouter
-  type: JSONPatch
-  jsonPatches:
-{"".join(_loopback_patch(name) for name in ("default/theagentrouter/http", f"envoy-gateway-proxy-ready-0.0.0.0-{READY_PORT}"))}"""
-        )
     routes = routes or {}
     backends = [(name, PROVIDERS[name]) for name in providers]
     for r in routes.values():
@@ -363,6 +334,8 @@ spec:
     hostname: {host}"""
             )
         schema = f"    name: {spec['schema']}" + (f'\n    version: "{version}"' if version else "")
+        # Removed before the provider's own key is added, so a client key never reaches a provider.
+        mutation = "\n  headerMutation:\n    remove: [authorization, x-api-key]" if strip_client_keys else ""
         docs.append(
             f"""apiVersion: aigateway.envoyproxy.io/v1beta1
 kind: AIServiceBackend
@@ -378,7 +351,7 @@ spec:
     name: {name}
     kind: Backend
     group: gateway.envoyproxy.io
-    namespace: default"""
+    namespace: default{mutation}"""
         )
         target = f"""  targetRefs:
     - group: aigateway.envoyproxy.io
@@ -398,7 +371,7 @@ spec:
     secretRef:
       name: {name}-key"""
             if local:
-                # A file, so a reload can give the running gateway a rotated key.
+                # A private file, so the config holds no key value.
                 source = f"""  annotations:
     substitution.aigw.run/file/apiKey: {json.dumps(str(_key_file(spec["keys"][0])))}
 type: Opaque
@@ -528,7 +501,9 @@ def export_config(
         raise exceptions.BadRequestError(
             f"the routes or models use providers not in the config: {', '.join(outside)}; add them to providers"
         )
-    config = config_yaml(chosen, env, port, routed_models(chosen, extra), current, local=False)
+    config = config_yaml(
+        chosen, env, port, routed_models(chosen, extra), current, local=False, strip_client_keys=authentication
+    )
     if authentication:
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", api_key_env):
             raise ValueError("api_key_env must be an environment variable name")
@@ -537,19 +512,9 @@ def export_config(
 
 
 def _api_key_config(variable: str) -> str:
-    # Missing/empty variables produce duplicate empty credentials, which fail translation closed.
-    # Store both standard SDK wire forms; Envoy's API-key filter matches header values verbatim.
-    return f"""apiVersion: v1
-kind: Secret
-metadata:
-  name: theagentrouter-client-keys
-  namespace: default
-type: Opaque
-stringData:
-  sdk: "${{{variable}}}"
-  bearer: "${{{variable}:+Bearer }}${{{variable}}}"
----
-apiVersion: gateway.envoyproxy.io/v1alpha1
+    # aigw fills in ${VAR} across the whole file. Missing or empty, the expected value becomes a line break,
+    # which no header can carry, so a server started without the variable refuses every request.
+    return f"""apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: SecurityPolicy
 metadata:
   name: theagentrouter-client-auth
@@ -559,12 +524,21 @@ spec:
     - group: gateway.networking.k8s.io
       kind: Gateway
       name: theagentrouter
-  apiKeyAuth:
-    credentialRefs:
-      - name: theagentrouter-client-keys
-    extractFrom:
-      - headers: [Authorization, x-api-key]
-    sanitize: true
+  authorization:
+    defaultAction: Deny
+    rules:
+      - name: client-key
+        action: Allow
+        principal:
+          headers:
+            - name: x-api-key
+              values: ["${{{variable}:-\\n}}"]
+      - name: client-bearer
+        action: Allow
+        principal:
+          headers:
+            - name: authorization
+              values: ["Bearer ${{{variable}:-\\n}}"]
 """
 
 
@@ -718,19 +692,6 @@ def _backends_ready(admin: int, routes: dict) -> bool:
     return True
 
 
-def _models_ready(admin: int, models: list[str]) -> bool:
-    """Whether Envoy's routes match every one of these model names: after a reload they arrive a moment later."""
-    import urllib.request
-
-    try:
-        url = f"http://{HOST}:{admin}/config_dump?resource=dynamic_route_configs"
-        with urllib.request.urlopen(url, timeout=2) as resp:
-            text = resp.read().decode("utf-8", "replace")
-    except OSError:
-        return False
-    return all(json.dumps(m) in text for m in models)
-
-
 def _alive(pid: int) -> bool:
     if pid <= 1:
         return False
@@ -784,7 +745,7 @@ def _key_file(variable: str) -> Path:
 
 
 def _write_keys(providers: list[str], env: dict[str, str]) -> None:
-    """Each provider's API key from this environment, in a private file aigw reads on start and on reload."""
+    """Each provider's API key from this environment, in a private file aigw reads when it starts."""
     directory = folder() / "keys"
     _private_dir(directory)
     for provider in providers:
@@ -825,12 +786,10 @@ def check_credentials(state: dict) -> None:
     current = _credential_fingerprints(state.get("providers", []), dict(os.environ))
     previous = state.get("credential_fingerprints", {})
     if any(provider in previous and previous[provider] != value for provider, value in current.items()):
-        fix = (
-            "call local_gateway.reload_keys() to give the running gateway this environment's keys"
-            if state.get("reload")
-            else "call local_gateway.stop() when other programs have finished, then retry to load the new keys"
+        raise exceptions.AuthenticationError(
+            "provider credentials changed since the local gateway started; "
+            "call local_gateway.stop() when other programs have finished, then retry to load the new keys"
         )
-        raise exceptions.AuthenticationError(f"provider credentials changed since the local gateway started; {fix}")
 
 
 def _listening(port: int, timeout: float = 0.5) -> bool:
@@ -994,8 +953,6 @@ def _start(providers: list[str], models: list[str], routes: dict | None = None) 
     runtime = _runtime_dir()
     _private_dir(runtime)
     env.setdefault("ENVOY_VERSION", ENVOY_VERSION)
-    # aigw run always starts an MCP proxy; without a seed it derives session keys from a public default.
-    env.setdefault("AIGW_MCP_SESSION_ENCRYPTION_SEED", secrets.token_urlsafe(32))
     env.update(
         AIGW_CONFIG_HOME=str(home / "config-home"),
         AIGW_STATE_HOME=str(home / "aigw-state"),
@@ -1023,8 +980,6 @@ def _start(providers: list[str], models: list[str], routes: dict | None = None) 
         "routes_fingerprint": routes_mod.fingerprint(routes),
         "versions": versions(),
         "credential_fingerprints": _credential_fingerprints(providers, env),
-        "reload": _reloads(),
-        "config_env": _config_env(env),
     }
     try:
         admin = _envoy_admin(log_path) if routes else None
@@ -1114,102 +1069,6 @@ def serves(state: dict | None, model: str, current: dict) -> bool:
     return model in state.get("models", []) and model not in state.get("routes", [])
 
 
-def _reloads() -> bool:
-    """Whether this aigw reloads its config on SIGHUP. One that does not would stop on the signal."""
-    try:
-        out = subprocess.run([_binary(), "run", "--help"], capture_output=True, text=True, timeout=20)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return "SIGHUP reloads" in out.stdout + out.stderr
-
-
-def _config_env(env: dict[str, str]) -> dict[str, str]:
-    """The settings config_yaml reads besides keys: provider addresses and the AWS region."""
-    return {k: v for k, v in env.items() if k.endswith("_BASE_URL") or k in ("AWS_REGION", "AWS_DEFAULT_REGION")}
-
-
-def _reload_results(log_path: Path) -> list[str]:
-    return [line for line in log_path.read_text(errors="replace").splitlines() if "configuration reload" in line]
-
-
-def _reload(state: dict, models: list[str], routes: dict, providers: list[str] | None = None) -> dict:
-    """Give the running gateway a new config with SIGHUP, so other programs' calls, streams included, continue.
-
-    API keys are read from their files, so ``providers`` can add one whose key file was just written. Other
-    settings come from the ones recorded at start; for an added provider, from this environment.
-    """
-    from . import routes as routes_mod
-
-    providers = sorted(providers or state["providers"])
-    config_env = dict(state.get("config_env", {}))
-    for provider in set(providers) - set(state["providers"]):  # an added provider's address, from this environment
-        variable = f"{provider.upper()}_BASE_URL"
-        if os.environ.get(variable):
-            config_env[variable] = os.environ[variable]
-    home = folder()
-    log_path = home / "aigw.log"
-    (home / "config.yaml").write_text(config_yaml(providers, config_env, state["port"], models, routes))
-    before = len(_reload_results(log_path))
-    os.kill(int(state["pid"]), signal.SIGHUP)
-    deadline = time.monotonic() + RELOAD_TIMEOUT
-    while len(results := _reload_results(log_path)) == before:
-        if not _alive(int(state["pid"])):
-            raise exceptions.APIConnectionError(
-                f"the local gateway stopped while reloading its config (log: {log_path})"
-            )
-        if time.monotonic() > deadline:
-            raise exceptions.Timeout(f"the local gateway did not reload its config within {RELOAD_TIMEOUT:.0f}s")
-        time.sleep(0.1)
-    if "failed" in results[-1]:
-        raise exceptions.APIConnectionError(f"the local gateway could not reload its config: {results[-1]}")
-    added = [m for m in models if m not in state.get("models", [])]
-    admin = _envoy_admin(log_path)
-    if admin:
-        ready_by = time.monotonic() + BACKENDS_READY_TIMEOUT
-        while time.monotonic() < ready_by and not (_models_ready(admin, added) and _backends_ready(admin, routes)):
-            time.sleep(0.2)
-        # Unresolved backend hosts are tolerated, as at start; missing model rules would only return 404 later.
-        if not _models_ready(admin, added):
-            raise exceptions.Timeout(
-                f"the local gateway reloaded, but Envoy did not get the new models within {BACKENDS_READY_TIMEOUT:.0f}s"
-            )
-    if not _alive(int(state["pid"])) or not _listening(int(state["port"])):
-        raise exceptions.APIConnectionError(f"the local gateway stopped after reloading its config (log: {log_path})")
-    state = {
-        **state,
-        "providers": providers,
-        "config_env": config_env,
-        "models": models,
-        "routes": sorted(routes),
-        "routes_fingerprint": routes_mod.fingerprint(routes),
-    }
-    _write_state(state)
-    return state
-
-
-def reload_keys() -> None:
-    """Give the running local gateway this environment's provider keys, without stopping it.
-
-    After a provider key is rotated, a program that has the new key is refused until this runs. Other
-    programs' calls continue. Providers whose key this environment lacks keep the key they have.
-    """
-    from . import routes as routes_mod
-
-    with _lock():
-        state = running()
-        if not state:
-            return
-        if not state.get("reload"):
-            raise exceptions.BadRequestError(
-                "this local gateway cannot reload; call local_gateway.stop() when other programs have finished"
-            )
-        env = dict(os.environ)
-        providers = [p for p in state["providers"] if PROVIDERS.get(p, {}).get("schema") != "AWSBedrock"]
-        _write_keys(providers, env)
-        fingerprints = {**state.get("credential_fingerprints", {}), **_credential_fingerprints(providers, env)}
-        _reload({**state, "credential_fingerprints": fingerprints}, state["models"], routes_mod.list_routes())
-
-
 def ensure(model: str) -> dict:
     """The running gateway with a rule for this model name or route, starting or restarting it.
 
@@ -1231,21 +1090,6 @@ def ensure(model: str) -> dict:
         needed = {m.split("/", 1)[0] for route in current.values() for m in route.models}
         if model not in current:
             needed.add(model.split("/", 1)[0])
-        if state and state.get("reload") and state.get("versions") == versions():
-            env = dict(os.environ)
-            added = sorted(needed - set(state.get("providers", [])))
-            if set(added) <= set(available(env)) and "bedrock" not in added:
-                _write_keys(added, env)
-                providers = sorted(set(state["providers"]) | set(added))
-                fingerprints = {**_credential_fingerprints(added, env), **state.get("credential_fingerprints", {})}
-                seen = set(state.get("models", []))
-                extra = {model} if model not in current else set()
-                return _reload(
-                    {**state, "credential_fingerprints": fingerprints},
-                    routed_models(providers, seen | extra),
-                    current,
-                    providers,
-                )
         if state and state.get("versions") != versions():
             raise exceptions.BadRequestError(
                 "the local gateway was started by another SDK version; stop it explicitly when other programs "

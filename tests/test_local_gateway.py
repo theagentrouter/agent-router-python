@@ -393,22 +393,22 @@ def test_real_gateway_end_to_end(real_gateway, env, capsys, monkeypatch):
     assert out.stdout.strip() == "local gateway echo: hi", out.stderr
     assert local_gateway.running()["pid"] == first["pid"]
 
-    # 5. A new provider's key adds it: by reload, or by a restart if the gateway cannot reload.
+    # 5. A new provider's key adds it, by a restart.
     monkeypatch.setenv("ACME2_KEY", "acme2-secret")
     monkeypatch.setitem(theagentrouter.model_cost, "acme2/acme-small", {})
     r = theagentrouter.completion(model="acme2/acme-small", messages=HELLO)
     assert r.choices[0].message.content == "echo: refunds yesterday"
     assert fake.requests[-1][1]["authorization"] == "Bearer acme2-secret"
     second = local_gateway.running()
-    assert (second["pid"] == first["pid"]) == bool(first.get("reload"))
+    assert second["pid"] != first["pid"]
     assert second["providers"] == ["acme", "acme2", "anthropic"]
 
-    # 6. A model the gateway has no rule for yet gets one: the gateway reloads with it, or restarts if it cannot.
+    # 6. A model the gateway has no rule for yet gets one, by a restart.
     monkeypatch.setitem(theagentrouter.model_cost, "acme/acme-other", {})
     r = theagentrouter.completion(model="acme/acme-other", messages=HELLO)
     assert r.choices[0].message.content == "echo: refunds yesterday"
     assert fake.requests[-1][2]["model"] == "acme-other"
-    assert (local_gateway.running()["pid"] == second["pid"]) == bool(second.get("reload"))
+    assert local_gateway.running()["pid"] != second["pid"]
 
     # 7. Errors from the provider keep LiteLLM's names through the gateway.
     monkeypatch.setitem(theagentrouter.model_cost, "acme/err-429", {})

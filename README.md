@@ -146,6 +146,8 @@ With these set, calls go to that gateway, the local gateway never starts, and th
 python -c "from theagentrouter import local_gateway; local_gateway.stop()"
 ```
 
+The local gateway is for development. A new route, model or provider restarts it, which interrupts other programs, and a rotated provider key needs a stop. All known limits: [How the local gateway works](docs/local-gateway.md#open).
+
 Installing from source, checking the install, upgrading and removing: [docs/install.md](docs/install.md).
 
 ## Documentation

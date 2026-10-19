@@ -334,13 +334,13 @@ The port changes from start to start, so another Agent Router gateway on 1975 (y
 
 - The SDK sets the gateway up from the provider keys in your environment. The gateway holds the keys: each is in a private file it reads (mode 0600), never in its config file.
 - It starts with a rule for every model in the SDK's bundled model list for those providers. Register a custom model with `register_model` before adding it to a running gateway. An unregistered model name raises `NotFoundError` and leaves the existing process running.
-- A new registered model, or a new provider whose key the caller has, reloads a same-version gateway without interrupting other programs. A new Bedrock provider restarts it, and then the caller must have credentials for every provider already running; otherwise the SDK raises and leaves the process running.
+- A new registered model, or a new provider whose key the caller has, restarts a same-version gateway, which interrupts other programs' requests. The caller must have credentials for every provider already running; otherwise the SDK raises and leaves the process running.
 - `AGENTROUTER_AUTOSTART=0` stops the SDK from starting it.
 - A gateway set with `AGENTROUTER_BASE_URL` always wins, and then the SDK starts nothing.
 - Its files, including its log `aigw.log`, are in `~/.agentrouter/local-gateway/`.
 - The very first start downloads Envoy (about 100 MB, into `~/.local/share/aigw`), so it needs the internet and can take a minute.
 - It keeps running after your program ends. To stop it: `python -c "from theagentrouter import local_gateway; local_gateway.stop()"`. The next call starts it again.
-- After an upgrade, existing gateway rules keep working. Stop the gateway explicitly when other programs finish to load the new version. After you rotate a provider key, calls from a program with the new key raise until it runs `theagentrouter.local_gateway.reload_keys()`, which gives the running gateway that program's keys without interrupting others.
+- After an upgrade, existing gateway rules keep working. Stop the gateway explicitly when other programs finish to load the new version. After you rotate a provider key, calls from a program with the new key raise until the gateway is stopped; the next call starts it with that program's keys.
 
 | Provider | Set in the environment |
 |---|---|
@@ -371,7 +371,7 @@ The local gateway does the retries and the fallbacks, as Agent Router Enterprise
 - **Fallback:** when a tier still fails with one of those codes, or cannot be reached, the gateway moves to the next tier. A stream falls back only before its reply starts.
 - **Sharing:** `primary=["openai/gpt-5.4", "openai/gpt-5.4-mini"]` puts two models in one tier, which share the traffic. A fallback can be a list too.
 - `served_by` is read from the model name in the reply, so it is missing when a provider answers with a name that does not start with the model's own.
-- Routes are kept in `~/.agentrouter/routes.json` and shared by every program on the computer, like the local gateway. Defining a route again replaces it; `ar.list_routes()` and `ar.remove_route(name)` list and remove them. A changed route reloads the gateway on the next call that needs it, without interrupting other programs.
+- Routes are kept in `~/.agentrouter/routes.json` and shared by every program on the computer, like the local gateway. Defining a route again replaces it; `ar.list_routes()` and `ar.remove_route(name)` list and remove them. A changed route restarts the gateway on the next call that needs it, which interrupts other programs' requests.
 - Define routes without local provider keys or a companion package when exporting configuration. The machine that starts the gateway needs credentials for every provider in the saved routes.
 - A route of Anthropic and other providers reaches Anthropic through its OpenAI-compatible endpoint.
 - **Limit:** `limit=ar.Limit(60, per="minute")` lets at most 60 requests a minute through the route; the gateway answers the rest with 429 (`RateLimitError`). `per` is `"second"`, `"minute"`, `"hour"` or `"day"`. The count covers every program on the computer that uses the route. It counts requests, not tokens: Agent Router counts tokens only with a Redis-backed rate-limit service, which the local gateway does not have.
@@ -391,7 +391,7 @@ Path("config.yaml").write_text(local_gateway.export_config(port=1975))
 
 ```sh
 export AGENTROUTER_API_KEY=...             # the server client key; set it on clients too
-ENVOY_VERSION=1.39.4 aigw run config.yaml   # patched build; provider keys come from the server environment
+ENVOY_VERSION=1.39.4 aigw run config.yaml   # provider keys come from the server environment
 ```
 
 What the file holds:
@@ -401,7 +401,7 @@ What the file holds:
 - **Routes:** the routes defined on your computer, with their fallbacks, retries and limits.
 - **No key values:** only references such as `${OPENAI_API_KEY}`, which `aigw` fills in from the server's environment.
 
-Exported configurations require a client key by default. Set `AGENTROUTER_API_KEY` on the server and on each client. The gateway accepts `Authorization: Bearer <key>` or `x-api-key: <key>` and strips the client header before forwarding. `export_config(authentication=False)` explicitly exports an open endpoint. Terminate TLS in front of the server when callers use an untrusted network. The server-authentication change requires the [patched aigw build](../local-gateway/patches/README.md); unmodified upstream v1.2.0 drops the client-key Secret. On the server, also set `AIGW_MCP_SESSION_ENCRYPTION_SEED` to a random secret: `aigw` always starts an MCP proxy, which otherwise uses a publicly known seed. The patched build reads it; unmodified v1.2.0 has no setting for it.
+Exported configurations require a client key by default. Set `AGENTROUTER_API_KEY` on the server and on each client. The gateway accepts `Authorization: Bearer <key>` or `x-api-key: <key>`, refuses a missing or wrong key with 403, and removes the client key before forwarding. A server started without `AGENTROUTER_API_KEY` refuses every request. `export_config(authentication=False)` explicitly exports an open endpoint. Terminate TLS in front of the server when callers use an untrusted network.
 
 #### Routes and a gateway you set
 

@@ -3,13 +3,13 @@ the Envoy version, LiteLLM's stream shape and LiteLLM's drop_params for Claude."
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
-import shutil
+import signal
 import socket
 import stat
 import subprocess
-import threading
 import time
 
 import httpx
@@ -19,7 +19,7 @@ import theagentrouter
 from theagentrouter import exceptions, local_gateway, routing
 from theagentrouter.compat import litellm
 
-from .test_local_gateway import needs_aigw, needs_xds_port
+from .test_local_gateway import _free_port, needs_aigw, needs_xds_port
 from .test_sdk import HELLO
 
 MODELS = ["openai/gpt-4o-mini", "anthropic/claude-sonnet-4-5"]
@@ -28,22 +28,23 @@ MODELS = ["openai/gpt-4o-mini", "anthropic/claude-sonnet-4-5"]
 # ---- who can call the local gateway -------------------------------------------------------------
 
 
-def test_local_gateway_config_answers_only_this_computer():
+def test_local_gateway_config_answers_only_this_computer(env):
     config = local_gateway.config_yaml(["openai"], {"OPENAI_API_KEY": "k"}, port=1975, models=[])
     policy = next(d for d in config.split("\n---\n") if "kind: SecurityPolicy" in d)
     assert "defaultAction: Deny" in policy
     assert "- 127.0.0.1/32" in policy and "- ::1/128" in policy
-    patch = next(d for d in config.split("\n---\n") if "kind: EnvoyPatchPolicy" in d)
-    assert "name: default/theagentrouter/http" in patch and "envoy-gateway-proxy-ready-0.0.0.0-19003" in patch
-    assert patch.count("value: 127.0.0.1") == 2
-    assert "EnvoyPatchPolicy" not in local_gateway.export_config(providers=["openai"])  # a server serves the network
+    assert "clientCIDRs" not in local_gateway.export_config(providers=["openai"])  # a server serves the network
 
 
 def test_exported_config_authenticates_by_default(env):
     config = local_gateway.export_config(providers=["openai"])
-    assert "apiKeyAuth:" in config and "clientCIDRs" not in config
-    assert "${AGENTROUTER_API_KEY}" in config and "sanitize: true" in config
-    assert "apiKeyAuth:" not in local_gateway.export_config(providers=["openai"], authentication=False)
+    policy = next(d for d in config.split("\n---\n") if "name: theagentrouter-client-auth" in d)
+    assert "defaultAction: Deny" in policy
+    assert 'values: ["${AGENTROUTER_API_KEY:-\\n}"]' in policy
+    assert 'values: ["Bearer ${AGENTROUTER_API_KEY:-\\n}"]' in policy
+    assert "remove: [authorization, x-api-key]" in config  # the client key goes no further
+    open_config = local_gateway.export_config(providers=["openai"], authentication=False)
+    assert "theagentrouter-client-auth" not in open_config and "headerMutation" not in open_config
 
 
 def _network_address() -> str | None:
@@ -66,30 +67,92 @@ def test_real_gateway_refuses_callers_from_the_network(real_gateway):
     port = local_gateway.running()["port"]
     body = {"model": "acme/acme-large", "messages": HELLO}
     sent = len(real_gateway.requests)
-    try:  # the bundled aigw listens on loopback only; an aigw that cannot still refuses with 403
-        assert httpx.post(f"http://{address}:{port}/v1/chat/completions", json=body, timeout=20).status_code == 403
-    except httpx.ConnectError:
-        pass
+    # Envoy listens on every address; the policy refuses a caller that is not on this computer.
+    assert httpx.post(f"http://{address}:{port}/v1/chat/completions", json=body, timeout=20).status_code == 403
     assert len(real_gateway.requests) == sent  # the provider never saw it, so no key was used
     assert httpx.post(f"http://127.0.0.1:{port}/v1/chat/completions", json=body, timeout=20).status_code == 200
 
 
+@contextlib.contextmanager
+def _exported_gateway(config: str, folder, environ: dict[str, str]):
+    """``aigw run`` on an exported config, as a team would run it on a server."""
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "config.yaml").write_text(config)
+    log = folder / "aigw.log"
+    environ = {
+        **os.environ,
+        "ENVOY_VERSION": local_gateway.ENVOY_VERSION,
+        "AIGW_CONFIG_HOME": str(folder / "config-home"),
+        "AIGW_STATE_HOME": str(folder / "state"),
+        **environ,
+    }
+    with log.open("wb") as out:
+        proc = subprocess.Popen(
+            [local_gateway._binary(), "run", str(folder / "config.yaml"), f"--admin-port={_free_port()}"],
+            stdout=out,
+            stderr=subprocess.STDOUT,
+            env=environ,
+            start_new_session=True,
+        )
+    try:
+        deadline = time.monotonic() + local_gateway.START_TIMEOUT
+        while "listening on" not in log.read_text(errors="replace"):
+            assert proc.poll() is None and time.monotonic() < deadline, log.read_text(errors="replace")
+            time.sleep(0.2)
+        yield
+    finally:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGTERM)
+        proc.wait(timeout=30)
+
+
 @needs_aigw
 @needs_xds_port
-def test_real_gateway_listens_on_loopback_only(real_gateway):
-    # The gateway's own sockets: another program may hold the same port on every address.
-    if not shutil.which("lsof") or not shutil.which("pgrep"):
-        pytest.skip("needs lsof and pgrep")
-    theagentrouter.completion(model="acme/acme-large", messages=HELLO)
-    state = local_gateway.running()
-    if not state.get("reload"):
-        pytest.skip("this aigw is not the bundled build")
-    group = subprocess.run(["pgrep", "-g", str(os.getpgid(state["pid"]))], capture_output=True, text=True)
-    pids = ",".join(group.stdout.split())
-    listing = subprocess.run(["lsof", "-nP", "-a", "-p", pids, "-iTCP", "-sTCP:LISTEN"], capture_output=True, text=True)
-    addresses = [line.split()[8] for line in listing.stdout.splitlines()[1:]]
-    assert addresses, listing.stderr
-    assert all(a.startswith(("127.0.0.1:", "[::1]:")) for a in addresses), addresses
+def test_real_exported_gateway_checks_the_client_key(real_gateway, tmp_path):
+    fake = real_gateway
+    port = _free_port()
+    config = local_gateway.export_config(port=port, providers=["acme", "anthropic"], models=["acme/acme-large"])
+    chat = {"model": "acme/acme-large", "messages": HELLO}
+    claude = {"model": "claude-sonnet-4-5", "max_tokens": 50, "messages": HELLO}
+    base = f"http://127.0.0.1:{port}"
+    with _exported_gateway(config, tmp_path / "server", {"AGENTROUTER_API_KEY": "team-key"}):
+        sent = len(fake.requests)
+        for headers in ({}, {"x-api-key": "wrong"}, {"authorization": "Bearer wrong"}, {"authorization": "team-key"}):
+            r = httpx.post(f"{base}/v1/chat/completions", json=chat, headers=headers, timeout=20)
+            assert r.status_code == 403, headers
+        assert len(fake.requests) == sent  # refused before any provider was called
+        for headers in ({"authorization": "Bearer team-key"}, {"x-api-key": "team-key"}):
+            r = httpx.post(f"{base}/v1/chat/completions", json=chat, headers=headers, timeout=20)
+            assert r.status_code == 200, r.text
+            seen = fake.requests[-1][1]
+            assert seen["authorization"] == "Bearer acme-secret" and "team-key" not in json.dumps(seen)
+        # A Messages call: the client key is removed whichever header carries it, and Anthropic gets its own.
+        for headers in ({"authorization": "Bearer team-key"}, {"x-api-key": "team-key"}):
+            r = httpx.post(f"{base}/anthropic/v1/messages", json=claude, headers=headers, timeout=20)
+            assert r.status_code == 200, r.text
+            seen = fake.requests[-1][1]
+            assert seen["x-api-key"] == "sk-ant-test" and "team-key" not in json.dumps(seen)
+
+
+@needs_aigw
+@needs_xds_port
+def test_real_exported_gateway_without_its_key_refuses_everyone(real_gateway, tmp_path):
+    port = _free_port()
+    config = local_gateway.export_config(port=port, providers=["acme"], models=["acme/acme-large"])
+    chat = {"model": "acme/acme-large", "messages": HELLO}
+    body = json.dumps(chat).encode()
+    with _exported_gateway(config, tmp_path / "server", {"AGENTROUTER_API_KEY": ""}):
+        # Raw requests, since HTTP clients refuse to send an empty key or one with a trailing space.
+        for header in (b"", b"x-api-key: \r\n", b"authorization: Bearer \r\n", b"authorization: Bearer\r\n"):
+            with socket.create_connection(("127.0.0.1", port), timeout=20) as s:
+                s.sendall(
+                    b"POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\n"
+                    + header
+                    + f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n".encode()
+                    + body
+                )
+                assert s.recv(64).startswith(b"HTTP/1.1 403"), header
+    assert not real_gateway.requests
 
 
 def test_the_gateway_runs_the_pinned_envoy(env, monkeypatch):
@@ -114,41 +177,10 @@ def test_the_gateway_runs_the_pinned_envoy(env, monkeypatch):
     assert seen["ENVOY_VERSION"] == "1.39.3"  # the user's choice wins
 
 
-def test_each_start_has_its_own_mcp_session_seed(env, monkeypatch):
-    seen = []
-
-    class Started(Exception):
-        pass
-
-    def launch(home, environ, *args):
-        seen.append(environ.get("AIGW_MCP_SESSION_ENCRYPTION_SEED"))
-        raise Started
-
-    monkeypatch.setattr(local_gateway, "_launch", launch)
-    monkeypatch.setattr(local_gateway, "_busy_internal", lambda: None)
-    monkeypatch.delenv("AIGW_MCP_SESSION_ENCRYPTION_SEED", raising=False)
-    for _ in range(2):
-        with pytest.raises(Started):
-            local_gateway._start(["openai"], [])
-    assert len(seen[0]) >= 32 and len(seen[1]) >= 32 and seen[0] != seen[1]
-    monkeypatch.setenv("AIGW_MCP_SESSION_ENCRYPTION_SEED", "acme-seed")
-    with pytest.raises(Started):
-        local_gateway._start(["openai"], [])
-    assert seen[-1] == "acme-seed"  # the user's choice wins
-
-
-@needs_aigw
-@needs_xds_port
-def test_real_gateway_does_not_use_the_public_mcp_seed(real_gateway):
-    theagentrouter.completion(model="acme/acme-large", messages=HELLO)
-    log = (local_gateway.folder() / "aigw.log").read_text(errors="replace")
-    assert "well-known default value" not in log
-
-
 # ---- a route change and the other programs on the gateway ----------------------------------------
 
 
-def test_a_route_change_reloads_a_gateway_that_can(env, monkeypatch):
+def test_a_route_change_restarts_the_gateway(env, monkeypatch):
     calls = []
     state = {
         "pid": 1,
@@ -157,23 +189,13 @@ def test_a_route_change_reloads_a_gateway_that_can(env, monkeypatch):
         "models": ["openai/gpt-4o-mini"],
         "routes": [],
         "versions": local_gateway.versions(),
-        "reload": True,
     }
     monkeypatch.setattr(local_gateway, "running", lambda: state)
-    monkeypatch.setattr(
-        local_gateway,
-        "_reload",
-        lambda s, models, routes, providers=None: calls.append(("reload", sorted(routes))) or s,
-    )
     monkeypatch.setattr(local_gateway, "stop", lambda *a, **k: calls.append(("stop",)))
     monkeypatch.setattr(local_gateway, "_start", lambda *a, **k: calls.append(("start",)) or state)
     theagentrouter.route("acme-chat", "openai/gpt-4o-mini", fallbacks=["openai/gpt-4o"])
     local_gateway.ensure("acme-chat")
-    assert calls == [("reload", ["acme-chat"])]
-    # A gateway that cannot reload, or a route needing a provider it does not run, still restarts.
-    state["reload"] = False
-    local_gateway.ensure("acme-chat")
-    assert calls[-2:] == [("stop",), ("start",)]
+    assert calls == [("stop",), ("start",)]  # aigw reads its config once, at start
 
 
 # ---- a rotated provider key -----------------------------------------------------------------------
@@ -200,90 +222,24 @@ def test_a_changed_key_says_how_to_load_it(env, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "acme-new")
     with pytest.raises(exceptions.AuthenticationError, match="local_gateway.stop"):
         local_gateway.check_credentials(state)
-    with pytest.raises(exceptions.AuthenticationError, match=r"local_gateway.reload_keys\(\)"):
-        local_gateway.check_credentials({**state, "reload": True})
 
 
 @needs_aigw
 @needs_xds_port
-def test_real_gateway_takes_a_rotated_key_without_restarting(real_gateway, monkeypatch):
-    theagentrouter.completion(model="acme/acme-large", messages=HELLO)
-    before = local_gateway.running()
-    if not before.get("reload"):
-        pytest.skip("this aigw does not reload on SIGHUP")
-    assert real_gateway.requests[-1][1]["authorization"] == "Bearer acme-secret"
-    monkeypatch.setenv("ACME_KEY", "acme-rotated")
-    with pytest.raises(exceptions.AuthenticationError, match="reload_keys"):
-        theagentrouter.completion(model="acme/acme-large", messages=HELLO)
-    local_gateway.reload_keys()
-    theagentrouter.completion(model="acme/acme-large", messages=HELLO)
-    assert real_gateway.requests[-1][1]["authorization"] == "Bearer acme-rotated"
-    assert local_gateway.running()["pid"] == before["pid"]
-
-
-@needs_aigw
-@needs_xds_port
-def test_real_gateway_reloads_with_an_https_backend(env, monkeypatch):
-    # An HTTPS provider gets a BackendTLSPolicy; a reload must update it, not stop Envoy Gateway on it.
+def test_real_gateway_adds_a_route_with_an_https_backend(env, monkeypatch):
+    # An HTTPS provider gets a BackendTLSPolicy; a route change must not stop Envoy Gateway on it.
     monkeypatch.setattr(local_gateway, "PORT", 0)
     monkeypatch.setattr(local_gateway, "ADMIN_PORT", 0)
     monkeypatch.setenv("OPENAI_BASE_URL", "https://localhost:1/v1")  # no DNS and no call needed
     monkeypatch.delenv("ANTHROPIC_API_KEY")
     try:
-        first = local_gateway.ensure("openai/gpt-4o-mini")
-        if not first.get("reload"):
-            pytest.skip("this aigw does not reload on SIGHUP")
+        local_gateway.ensure("openai/gpt-4o-mini")
         theagentrouter.route("acme-chat", "openai/gpt-4o-mini", fallbacks=["openai/gpt-4o"])
-        local_gateway.ensure("acme-chat")
-        assert local_gateway.running()["pid"] == first["pid"]
+        state = local_gateway.ensure("acme-chat")
+        assert local_gateway.running()["pid"] == state["pid"]
         assert "exiting on provider runner error" not in (local_gateway.folder() / "aigw.log").read_text()
     finally:
         local_gateway.stop()
-
-
-def test_reload_reports_models_that_never_reach_envoy(env, monkeypatch):
-    home = local_gateway.folder()
-    home.mkdir(parents=True, exist_ok=True)
-    log = home / "aigw.log"
-    log.write_text("Envoy AI Gateway listening on http://localhost:9 (admin http://localhost:10) after 1s\n")
-
-    def sighup(pid, sig):
-        log.write_text(log.read_text() + "Envoy AI Gateway configuration reloaded\n")
-
-    monkeypatch.setattr(local_gateway.os, "kill", sighup)
-    monkeypatch.setattr(local_gateway, "_models_ready", lambda admin, models: False)
-    monkeypatch.setattr(local_gateway, "_backends_ready", lambda admin, routes: True)
-    monkeypatch.setattr(local_gateway, "BACKENDS_READY_TIMEOUT", 0.3)
-    state = {"pid": os.getpid(), "port": 9, "providers": ["openai"], "models": [], "config_env": {}}
-    with pytest.raises(exceptions.Timeout, match="did not get the new models"):
-        local_gateway._reload(state, ["openai/gpt-4o-mini"], {})
-
-
-@needs_aigw
-@needs_xds_port
-def test_real_gateway_adds_a_route_without_dropping_a_stream(real_gateway):
-    theagentrouter.completion(model="acme/slow-stream", messages=HELLO)  # the first start serves this model
-    before = local_gateway.running()
-    if not before.get("reload"):
-        pytest.skip("this aigw does not reload on SIGHUP")
-    chunks, errors = [], []
-
-    def stream():
-        try:
-            for c in theagentrouter.completion(model="acme/slow-stream", messages=HELLO, stream=True):
-                chunks.append(c)
-        except Exception as e:  # recorded, so the assertion below can show it
-            errors.append(e)
-
-    t = threading.Thread(target=stream)
-    t.start()
-    time.sleep(1)
-    theagentrouter.route("acme-chat", "acme/err-500", fallbacks=["acme/acme-large"])
-    r = theagentrouter.completion(model="acme-chat", messages=HELLO)
-    t.join(30)
-    assert r.choices[0].message.content == "echo: refunds yesterday"  # the fallback answered
-    assert not errors and chunks[-1].choices[0].finish_reason == "stop"
-    assert local_gateway.running()["pid"] == before["pid"]  # no restart
 
 
 # ---- which key goes where -----------------------------------------------------------------------

@@ -82,10 +82,7 @@ def test_local_gateway_refuses_other_computers(gateway, fake):
     port = gateway.running()["port"]
     sent = len(fake.requests)
     body = {"model": OPENAI, "messages": HELLO}
-    try:  # the bundled aigw listens on loopback only; one that cannot still refuses with 403
-        assert httpx.post(f"http://{address}:{port}/v1/chat/completions", json=body, timeout=20).status_code == 403
-    except httpx.ConnectError:
-        pass
+    assert httpx.post(f"http://{address}:{port}/v1/chat/completions", json=body, timeout=20).status_code == 403
     assert len(fake.requests) == sent
 
 

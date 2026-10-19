@@ -398,14 +398,10 @@ def test_exported_config_serves_a_team_gateway(real_gateway, second_fake, env, m
             start_new_session=True,
         )
     try:
-        started = time.monotonic()
         deadline = time.monotonic() + 120
         while not (
             "listening on" in (server / "aigw.log").read_text(errors="replace") and local_gateway._listening(port)
         ):
-            log_text = (server / "aigw.log").read_text(errors="replace")
-            if not server_key and "External Processor is ready" in log_text and time.monotonic() - started > 5:
-                break  # Invalid empty credentials can prevent Envoy from opening its listener.
             assert proc.poll() is None and time.monotonic() < deadline, (server / "aigw.log").read_text()[-2000:]
             time.sleep(0.2)
         monkeypatch.setenv("AGENTROUTER_BASE_URL", f"http://127.0.0.1:{port}/v1")
@@ -419,25 +415,21 @@ def test_exported_config_serves_a_team_gateway(real_gateway, second_fake, env, m
         with httpx.Client(trust_env=False) as client:
             if not server_key:
                 for headers in ({}, {"Authorization": "Bearer wrong"}, {"x-api-key": "wrong"}):
-                    try:
-                        response = client.post(
-                            f"http://127.0.0.1:{port}/v1/chat/completions", json=request, headers=headers
-                        )
-                    except httpx.ConnectError:
-                        assert not local_gateway._listening(port)
-                    else:
-                        assert response.status_code >= 400
+                    response = client.post(
+                        f"http://127.0.0.1:{port}/v1/chat/completions", json=request, headers=headers
+                    )
+                    assert response.status_code == 403
                 assert len(real_gateway.requests) == before
                 return
             missing_key = client.post(f"http://127.0.0.1:{port}/v1/chat/completions", json=request)
-            assert missing_key.status_code == 401, (missing_key.text, (server / "aigw.log").read_text()[-4000:])
+            assert missing_key.status_code == 403, (missing_key.text, (server / "aigw.log").read_text()[-4000:])
             assert (
                 client.post(
                     f"http://127.0.0.1:{port}/v1/chat/completions",
                     json=request,
                     headers={"Authorization": "Bearer wrong"},
                 ).status_code
-                == 401
+                == 403
             )
         assert len(real_gateway.requests) == before
 

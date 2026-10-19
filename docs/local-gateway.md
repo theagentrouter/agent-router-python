@@ -24,8 +24,8 @@ The macOS arm64 wheel is about 80 MB compressed (the program itself is 281 MB). 
 
 1. `api_base` on the call: that endpoint, in the provider's own format (LiteLLM's argument).
 2. A gateway set with `AGENTROUTER_BASE_URL` (or `config.json`).
-3. A route name: the local gateway's route for it. The running gateway is used only if it has this computer's current routes (`routes_fingerprint` in `state.json`); otherwise it reloads (see Reloading) or restarts. With `AGENTROUTER_AUTOSTART=0`, a running gateway that already has the route is still used.
-4. Anything else: the running local gateway, if it has a rule for this name and the name was not a route when it started (`local_gateway.serves`); otherwise the gateway is started, reloaded or restarted with this model, if installed and `AGENTROUTER_AUTOSTART` is not `0`. Otherwise an error says to set `AGENTROUTER_BASE_URL`. An `api_key=` here cannot reach the provider (the gateway holds the keys), so it warns once.
+3. A route name: the local gateway's route for it. The running gateway is used only if it has this computer's current routes (`routes_fingerprint` in `state.json`); otherwise it restarts. With `AGENTROUTER_AUTOSTART=0`, a running gateway that already has the route is still used.
+4. Anything else: the running local gateway, if it has a rule for this name and the name was not a route when it started (`local_gateway.serves`); otherwise the gateway is started or restarted with this model, if installed and `AGENTROUTER_AUTOSTART` is not `0`. Otherwise an error says to set `AGENTROUTER_BASE_URL`. An `api_key=` here cannot reach the provider (the gateway holds the keys), so it warns once.
 
 ## Starting and stopping
 
@@ -39,15 +39,13 @@ State lives in `AGENTROUTER_HOME/local-gateway/`: `config.yaml`, `state.json` (p
 
 `local_gateway.stop()` stops it; the docs give it as a `python -c` line, since there is no command (see Open). `state.json` records the SDK and companion versions. Existing rules are reused across versions; configuration changes require an explicit stop if another version started the process. Unknown models cannot restart an existing process; register custom models first.
 
-The start lock times out after 30 seconds, since a start or a reload holds it for several seconds. The SDK checks that its runtime directory is owned by the current user, rejects symlinks, and sets mode 0700. It writes state atomically with mode 0600 immediately after spawning, so an interrupted start can be stopped and reaped. Stop removes generated key/state files once the process has stopped. Credential fingerprints detect supplied key changes: a program whose key differs from the running gateway's is refused until `local_gateway.reload_keys()` gives the gateway its keys (a gateway that cannot reload needs a stop instead). A process with no provider key can continue using an already configured provider, but cannot reconfigure the gateway while dropping its credentials.
+The start lock times out after 30 seconds, since a start holds it for several seconds. The SDK checks that its runtime directory is owned by the current user, rejects symlinks, and sets mode 0700. It writes state atomically with mode 0600 immediately after spawning, so an interrupted start can be stopped and reaped. Stop removes generated key/state files once the process has stopped. Credential fingerprints detect supplied key changes: a program whose key differs from the running gateway's is refused until the gateway is stopped with `local_gateway.stop()`; the next call starts it with that program's keys. A process with no provider key can continue using an already configured provider, but cannot reconfigure the gateway while dropping its credentials.
 
 ## Config
 
-At each start the SDK also gives `aigw` a random `AIGW_MCP_SESSION_ENCRYPTION_SEED`, unless one is set: `aigw run` always starts an MCP proxy, which otherwise derives its session keys from a public default.
+The SDK writes the resources `aigw run` reads: a `GatewayClass` and `Gateway` at a free port chosen at each start (kept in `state.json`; `--admin-port` is chosen the same way), a buffer-limit `ClientTrafficPolicy`, a `SecurityPolicy` that answers only callers on this computer (`127.0.0.1` and `::1`; others get 403), one `AIGatewayRoute`, and per provider a `Backend`, a `BackendTLSPolicy` for HTTPS, an `AIServiceBackend`, a `BackendSecurityPolicy` and, for API keys, a `Secret`.
 
-The SDK writes the resources `aigw run` reads: a `GatewayClass` and `Gateway` at a free port chosen at each start (kept in `state.json`; `--admin-port` is chosen the same way), a buffer-limit `ClientTrafficPolicy`, a `SecurityPolicy` that answers only callers on this computer (`127.0.0.1` and `::1`; others get 403), an `EnvoyPatchPolicy` that moves Envoy's listener and its readiness listener (19003) to `127.0.0.1` (the bundled build applies it; another `aigw` ignores it, and the `SecurityPolicy` still refuses), one `AIGatewayRoute`, and per provider a `Backend`, a `BackendTLSPolicy` for HTTPS, an `AIServiceBackend`, a `BackendSecurityPolicy` and, for API keys, a `Secret`.
-
-**The SDK's `config.yaml` holds no key values.** Each API key is written to its own file, `keys/<VARIABLE>` (mode 0600, in a 0700 folder), and the `Secret` names that file with `aigw`'s `substitution.aigw.run/file/` annotation, so `aigw` reads it on start and on every reload. Stop removes the folder. An exported server config keeps `${OPENAI_API_KEY}`-style references, filled in from the server's environment. Bedrock credentials come from `aigw`'s own environment. `aigw` writes its translated resources and runtime configuration under `aigw-state/`. Those generated files can contain credentials. The end-to-end test checks the SDK input file and the key received by the provider; it does not assert that the upstream process keeps every generated file free of keys.
+**The SDK's `config.yaml` holds no key values.** Each API key is written to its own file, `keys/<VARIABLE>` (mode 0600, in a 0700 folder), and the `Secret` names that file with `aigw`'s `substitution.aigw.run/file/` annotation, so `aigw` reads it when it starts. Stop removes the folder. An exported server config keeps `${OPENAI_API_KEY}`-style references, filled in from the server's environment. Bedrock credentials come from `aigw`'s own environment. `aigw` writes its translated resources and runtime configuration under `aigw-state/`. Those generated files can contain credentials. The end-to-end test checks the SDK input file and the key received by the provider; it does not assert that the upstream process keeps every generated file free of keys.
 
 | Provider | Turned on when these are set | Schema |
 |---|---|---|
@@ -58,9 +56,17 @@ The SDK writes the resources `aigw run` reads: a `GatewayClass` and `Gateway` at
 
 Azure OpenAI and Google Vertex AI are not set up yet. A call to them says so.
 
-## Reloading
+## Published aigw, no patches
 
-A companion whose `aigw run --help` says that SIGHUP reloads (the bundled patched build) records `reload` in `state.json`. When a call needs a route or model the running gateway lacks, and every provider it needs is already running, the SDK writes the new `config.yaml` from the settings recorded at start, sends SIGHUP, waits for `Envoy AI Gateway configuration reloaded` in `aigw.log` (about six seconds) and for the route's backends, then updates `state.json`. Envoy keeps running, so other programs' requests and streams continue. A reload that fails raises with `aigw`'s line; a companion that cannot reload is restarted as before.
+The local gateway runs the `aigw` release pinned in `local-gateway/aigw-release.json`, unchanged. Everything below is done in the config the SDK writes, with what that release offers.
+
+**Callers on other computers are refused.** `aigw run` binds Envoy's listener to every address and has no setting to change it. The `SecurityPolicy` in the local config allows only `127.0.0.1/32` and `::1/128` and denies everything else with 403. Envoy Gateway matches these addresses against the connection's source address, not `X-Forwarded-For`, so a caller cannot claim to be local. A refused request never reaches a provider, so it never uses a provider key. The listener and the internal ports stay open on the network (see Open).
+
+**An exported server checks a client key.** `export_config()` adds a `SecurityPolicy` whose authorization rules allow a request only when `x-api-key` equals `${AGENTROUTER_API_KEY}`, or `Authorization` equals `Bearer ${AGENTROUTER_API_KEY}`. Everything else gets 403. `aigw` fills in the variable across the whole file when it starts. When the variable is missing or empty, the expected value becomes a line break (`${AGENTROUTER_API_KEY:-\n}`), which no request header can carry, so the server refuses every request. Each `AIServiceBackend` removes `Authorization` and `x-api-key` before the provider's own key is added, so a client key never reaches a provider. The config does not use Envoy Gateway's `apiKeyAuth`: that needs its keys in a `Secret`, and `aigw run` does not pass the `Secret`s in its config file on to Envoy Gateway.
+
+**Configuration changes restart the gateway.** `aigw run` reads its config once, at start. The SDK restarts the shared gateway only for a real change: a new route, a registered model, or a provider whose key the caller has. An unknown model name raises `NotFoundError`, a gateway started by another SDK version raises instead of being replaced, and a caller without the keys of the providers already running raises. In each of these cases the gateway keeps running. A rotated provider key is detected and refused until the gateway is stopped with `local_gateway.stop()`.
+
+**No MCP session seed is set.** `aigw run` always starts an MCP proxy and logs a warning that its session seed is the public default. `aigw run` has no setting for the seed. The SDK configures no MCP servers, so nothing sits behind the proxy.
 
 ## Routing
 
@@ -68,7 +74,7 @@ The SDK sends the model name as the caller wrote it (`bedrock/anthropic.claude-s
 
 `aigw` routes on the model name as it is sent and cannot strip a `bedrock/` prefix. So the config has **one route rule per model**. Each rule matches the full name in the `x-ai-eg-model` header that `aigw` sets from the request, and for OpenAI and Anthropic the name without a provider too (`gpt-4o-mini`, `claude-sonnet-4-5`, as LiteLLM and Agent Router Enterprise write them). It passes the provider its own name with `modelNameOverride`.
 
-- The rules cover the bundled model list for the providers whose keys are set. A new model added to a running gateway must be explicitly registered. Known configuration changes reload a same-version gateway, or restart one that cannot reload; a typo does neither.
+- The rules cover the bundled model list for the providers whose keys are set. A new model added to a running gateway must be explicitly registered. Known configuration changes restart a same-version gateway, which interrupts other programs' requests; a typo does not.
 - `export_config()` writes the same config for a server, on a fixed port. A server cannot add rules on demand, so it gets the bundled list plus the models named in `models=`.
 - Gateway API allows at most 16 rules in one route, and `aigw` adds one rule of its own to each `AIGatewayRoute`. So the rules are spread over several `AIGatewayRoute`s of at most 15 (`RULES_PER_ROUTE`). A route with more never starts: `aigw` logs `HTTPRoute ... is invalid: spec.rules: Too many` only with `--debug`, and waits.
 
@@ -109,13 +115,15 @@ Run the real-provider scripts one at a time and stop the gateway between them: s
 
 ## Open
 
-1. **Every port is on loopback only with the bundled build.** Upstream Envoy Gateway binds Envoy's listeners and its own xDS (18000), wasm cache (18002) and health (8081) servers to every address, and upstream `aigw run` does the same for the MCP proxy (9856), the external processor's admin port and Envoy Gateway's metrics (19001). The bundled build patches both (see `local-gateway/patches/`). With an unpatched `aigw` those ports listen on every address, and only the `SecurityPolicy` stands between the network and the provider keys.
+1. **The gateway's ports listen on every address.** Upstream Envoy Gateway binds Envoy's listeners and its own xDS (18000), wasm cache (18002) and health (8081) servers to every address, and upstream `aigw run` does the same for the MCP proxy (9856), the external processor's admin port and Envoy Gateway's metrics (19001). The `SecurityPolicy` refuses any caller whose connection does not come from `127.0.0.1` or `::1`, so the network cannot reach the provider keys; the other ports stay open. Moving them to loopback needs changes in Agent Router and Envoy Gateway.
 2. **Fixed internal ports.** `aigw run` binds fixed ports inside itself (extension server 1061, Envoy Gateway xDS 18000, health 8081, admin 19000 and others), so only one Agent Router gateway runs per computer. The SDK chooses its own listener and admin ports at each start and names the program holding 1061 or 18000. Moving the internal ones needs changes in Agent Router and Envoy Gateway.
 3. **Windows and Intel macOS have no program.** Upstream provides macOS arm64 and Linux amd64/arm64 binaries only; those computers get the fallback wheel. The start lock and the route lock are POSIX only.
 4. **Envoy is downloaded on first start** into `~/.local/share/aigw` (about 100 MB, and older versions stay). The SDK sets `ENVOY_VERSION` (`local_gateway.ENVOY_VERSION`, the 1.39 line that Envoy Gateway v1.9 targets) unless it is already set; without it `aigw` takes the newest Envoy, and Envoy 1.40.0 does not start on macOS 14. To ship it in the wheel, test `aigw run` with a pre-filled `AIGW_DATA_HOME` and no network.
-5. **A program does not take over another's provider keys.** A reload writes only the keys of providers it adds, and `reload_keys()` only the keys the caller has; providers whose key the caller lacks keep theirs.
-6. **A new Bedrock provider still restarts the gateway.** Other providers are added by reload, with their key file written first; Bedrock's credentials come from the environment `aigw` started with.
+5. **A program does not take over another's provider keys.** A restart needs this environment's keys for every provider already running; without them the SDK raises and leaves the process running.
+6. **Configuration changes restart the gateway.** `aigw` reads its config once, so a new route, registered model or provider stops the shared gateway and starts it again, which interrupts other programs' requests and streams.
 7. **Backends at an IP address cannot fall back** correctly until Agent Router labels each backend on its own (see "Routes").
 8. **Bedrock with real AWS credentials**, including `AWS_PROFILE`, is untested.
 9. **Azure OpenAI and Google Vertex AI** are not set up.
 10. **No command to stop the gateway**, only `local_gateway.stop()`. Not planned for now.
+11. **A rotated provider key needs a stop.** The SDK detects that a caller's key differs from the one the gateway started with and refuses the call. Call `local_gateway.stop()` when other programs have finished; the next call starts the gateway with the new key. `aigw run` cannot load a new key without a restart.
+12. **The MCP proxy uses the public default session seed.** `aigw run` always starts an MCP proxy and has no setting for its seed. The SDK configures no MCP servers, so nothing sits behind the proxy.
