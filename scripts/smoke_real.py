@@ -95,6 +95,14 @@ def main() -> int:
     if not available:
         print("no provider keys set; set OPENAI_API_KEY and/or ANTHROPIC_API_KEY")
         return 2
+    # The bundled model list has no Bedrock or Azure models: register them so a running gateway can add them.
+    theagentrouter.register_model(
+        {
+            m: {"litellm_provider": m.split("/")[0], "mode": "chat"}
+            for m in available
+            if m.startswith(("bedrock/", "azure/"))
+        }
+    )
     for model in available:
         run(model)
     print(f"RESULT: PASS={passed} FAIL={failed}")

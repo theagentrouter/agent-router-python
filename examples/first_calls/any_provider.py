@@ -13,7 +13,10 @@ import theagentrouter
 
 MODELS = ["openai/gpt-5.4-mini", "anthropic/claude-haiku-5-5"]
 if os.environ.get("AWS_PROFILE") or os.environ.get("AWS_ACCESS_KEY_ID"):
-    MODELS.append("bedrock/global.anthropic.claude-haiku-4-5-20251001-v1:0")
+    BEDROCK = "bedrock/global.anthropic.claude-haiku-4-5-20251001-v1:0"
+    # The bundled model list has no Bedrock models: register one so a running gateway can add it.
+    theagentrouter.register_model({BEDROCK: {"litellm_provider": "bedrock", "mode": "chat"}})
+    MODELS.append(BEDROCK)
 
 for model in MODELS:
     resp = theagentrouter.completion(
