@@ -932,6 +932,29 @@ def stop(state: dict | None = None, timeout: float = 15.0) -> None:
     pid = int(state["pid"])
     if pid <= 1 or pid == os.getpid():
         raise exceptions.APIConnectionError("refusing to stop an invalid local gateway process")
+    # A gateway that is gone may have left its process number to another program: leave that one alone.
+    if _is_gateway(pid):
+        _terminate(pid, timeout)
+    (folder() / "state.json").unlink(missing_ok=True)
+    for path in (folder() / "aigw-state", folder() / "keys", _runtime_dir()):
+        if path.exists():
+            _private_dir(path)
+            shutil.rmtree(path)
+
+
+def _is_gateway(pid: int) -> bool:
+    """Whether the process is still aigw. Asked only when stopping, never on the request path."""
+    try:
+        result = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True, timeout=1)
+    except (OSError, subprocess.SubprocessError):
+        return True  # no ps, as on Windows: the stored number is all there is to go on
+    command = result.stdout.strip()
+    if not command or "<defunct>" in command:
+        return True  # gone, or a zombie: a signal cannot reach another program
+    return re.search(r"(^|[/\\])aigw(\.exe)?(\s|$)", command) is not None
+
+
+def _terminate(pid: int, timeout: float) -> None:
     with contextlib.suppress(ProcessLookupError, PermissionError):
         if hasattr(os, "killpg"):
             os.killpg(pid, signal.SIGTERM)
@@ -951,11 +974,6 @@ def stop(state: dict | None = None, timeout: float = 15.0) -> None:
             time.sleep(0.05)
     if not _stopped(pid):
         raise exceptions.Timeout("the local gateway did not stop; its state and key files were retained")
-    (folder() / "state.json").unlink(missing_ok=True)
-    for path in (folder() / "aigw-state", folder() / "keys", _runtime_dir()):
-        if path.exists():
-            _private_dir(path)
-            shutil.rmtree(path)
 
 
 def _start(providers: list[str], models: list[str], routes: dict | None = None) -> dict:
@@ -1108,9 +1126,6 @@ def ensure(model: str) -> dict:
                 f"unknown local model {model!r}; check the name or register_model() before using a custom model",
                 model=model,
             )
-        needed = {m.split("/", 1)[0] for route in current.values() for m in route.models}
-        if model not in current:
-            needed.add(model.split("/", 1)[0])
         if state and state.get("versions") != versions():
             raise exceptions.BadRequestError(
                 "the local gateway was started by another SDK version; stop it explicitly when other programs "

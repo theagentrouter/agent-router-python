@@ -148,7 +148,7 @@ def test_limit_is_stored_and_changes_the_fingerprint(env, installed):
     assert routes.fingerprint({"chat": plain}) != routes.fingerprint({"chat": limited})
 
 
-@pytest.mark.parametrize(("args", "match"), [((0,), "1 or more"), ((5, "week"), "must be one of")])
+@pytest.mark.parametrize(("args", "match"), [((0,), "from 1 to"), ((5, "week"), "must be one of")])
 def test_limit_checks_its_values(args, match):
     with pytest.raises(ValueError, match=match):
         ar.Limit(*args)
@@ -297,12 +297,51 @@ def test_router_turns_groups_and_fallbacks_into_routes(env, installed):
         fallbacks=[{"chat": ["backup"]}],
         num_retries=2,
     )
-    chat = ar.list_routes()["chat"]
+    chat = router.routes["chat"]
+    assert chat.name.startswith("router-") and chat.name.endswith(":chat")
+    assert ar.list_routes()[chat.name] == chat
     assert chat.tiers == (("openai/gpt-4o", "openai/gpt-4o-mini"), ("anthropic/claude-sonnet-4-5",))
     assert chat.retry.attempts == 2
     assert 404 in chat.retry.on and 401 in chat.retry.on  # LiteLLM's Router falls back on these too
-    assert ar.list_routes()["backup"].tiers == (("anthropic/claude-sonnet-4-5",),)
+    assert router.routes["backup"].tiers == (("anthropic/claude-sonnet-4-5",),)
     assert set(router.routes) == {"chat", "backup"}
+    assert "chat" not in ar.list_routes()  # the group name stays free for other programs
+
+
+def test_routers_in_two_programs_keep_their_own_routes(env, installed):
+    one = litellm.Router(model_list=[{"model_name": "chat", "litellm_params": {"model": "openai/gpt-4o"}}])
+    two = litellm.Router(model_list=[{"model_name": "chat", "litellm_params": {"model": "openai/gpt-4o-mini"}}])
+    again = litellm.Router(model_list=[{"model_name": "chat", "litellm_params": {"model": "openai/gpt-4o"}}])
+    assert one.routes["chat"].name != two.routes["chat"].name
+    assert again.routes["chat"].name == one.routes["chat"].name  # the same definition shares one route
+    two._target("chat")  # `again` removed two's route; two's next call puts it back
+    saved = ar.list_routes()
+    assert saved[one.routes["chat"].name].primary == "openai/gpt-4o"
+    assert saved[two.routes["chat"].name].primary == "openai/gpt-4o-mini"
+
+
+def test_a_new_router_definition_removes_the_route_an_earlier_one_left(env, installed):
+    # Otherwise the old route stays saved, and the gateway would not start without its provider's key.
+    old = litellm.Router(
+        model_list=[{"model_name": "chat", "litellm_params": {"model": "anthropic/claude-sonnet-4-5"}}]
+    )
+    new = litellm.Router(model_list=[{"model_name": "chat", "litellm_params": {"model": "openai/gpt-4o"}}])
+    assert set(ar.list_routes()) == {new.routes["chat"].name}
+    # A program still running the old Router puts its route back on its next call, and keeps the new one.
+    assert old._target("chat") == old.routes["chat"].name
+    assert set(ar.list_routes()) == {old.routes["chat"].name, new.routes["chat"].name}
+
+
+def test_a_router_group_named_after_a_model_does_not_take_it_over(env, installed):
+    router = litellm.Router(model_list=[{"model_name": "gpt-4o", "litellm_params": {"model": "openai/gpt-4o-mini"}}])
+    assert "gpt-4o" not in ar.list_routes() and "openai/gpt-4o" not in ar.list_routes()
+    assert router._target("gpt-4o") == router.routes["gpt-4o"].name
+
+
+@pytest.mark.parametrize("requests", [2.5, True, "10", 2**32])
+def test_limit_checks_its_types(requests):
+    with pytest.raises(ValueError, match="Limit.requests"):
+        ar.Limit(requests)
 
 
 def test_router_takes_keys_from_the_environment(env, installed):

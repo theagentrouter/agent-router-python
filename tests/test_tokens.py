@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 import theagentrouter as ar
@@ -41,6 +43,7 @@ def server(monkeypatch):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("AGENTROUTER_HOME", "/nonexistent-agentrouter-home")
     monkeypatch.setattr(tokens, "_warned", set())
+    monkeypatch.setitem(sys.modules, "tiktoken", None)  # the expected numbers are the estimate without tiktoken
     yield s
     s.close()
 

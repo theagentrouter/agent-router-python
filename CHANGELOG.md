@@ -2,6 +2,20 @@
 
 All notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Changed
+
+- LiteLLM's `Router` names each route after its group and its definition, such as `router-1a2b3c4d:chat`. Two programs with a group of the same name no longer replace each other's route, and a group named after a model no longer takes over that model's calls in other programs. A new definition of a group removes the route an earlier one left. Call the Router's methods with the group name, as before.
+- A 429 is a `BudgetExceededError`, and is not retried, only when the gateway says it is a budget block (code `budget_exceeded`, as Agent Router sends, or "budget exceeded" in the message). A provider rate limit that mentions a token budget is a `RateLimitError` and is retried.
+- A plain `response_format={"type": "json_object"}` for Claude warns once that it is not applied. Claude has no JSON mode without a schema; pass a JSON schema.
+
+### Fixed
+
+- An image or document in a tool result reaches Claude as an image or document block. It was sent as the text of Python's list printout.
+- `Limit` checks its arguments as `Retry` does: `Limit(2.5)`, `Limit(True)` and `Limit("10")` raise `ValueError`.
+- `local_gateway.stop()` signals the stored process only while it is still `aigw`, so a process that later got the same number is left alone.
+
 ## [0.1.0a7] - 2026-10-20
 
 ### Added

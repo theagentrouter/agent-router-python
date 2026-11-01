@@ -63,7 +63,10 @@ def test_stop_reaps_child_and_removes_key_files(env, monkeypatch, tmp_path):
     keys = local_gateway.folder() / "aigw-state" / "old-run"
     keys.mkdir(parents=True)
     (keys / "secret.yaml").write_text("acme-old-key")
-    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+    program = tmp_path / "aigw"
+    program.write_text(f"#!{sys.executable}\nimport time\ntime.sleep(60)\n")
+    program.chmod(0o700)
+    proc = subprocess.Popen([str(program)], start_new_session=True)
     local_gateway._write_state({"pid": proc.pid, "port": 9, "starting": True})
     started = time.monotonic()
     try:
@@ -282,6 +285,19 @@ def test_malformed_native_messages_raise_sdk_errors(env, fake, name):
         ar.anthropic.messages.create(
             model=f"anthropic/{name}", messages=[{"role": "user", "content": "acme"}], max_tokens=10, api_base=fake.url
         )
+
+
+def test_stop_leaves_another_program_with_the_gateways_old_number(env):
+    # The gateway exited and its process number went to another program before stop() ran.
+    other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True)
+    local_gateway._write_state({"pid": other.pid, "port": 9})
+    try:
+        local_gateway.stop()
+        assert other.poll() is None
+        assert not (local_gateway.folder() / "state.json").exists()
+    finally:
+        other.kill()
+        other.wait()
 
 
 def test_stop_does_not_wait_for_another_parents_zombie(env):

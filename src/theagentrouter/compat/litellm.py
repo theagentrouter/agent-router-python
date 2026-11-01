@@ -264,6 +264,28 @@ def get_llm_provider(
     return name, provider, api_key, api_base
 
 
+def _route_name(group: str, models: list[str], fallbacks: list[list[str]], retry: Any) -> str:
+    """The route a Router group becomes: the same definition gets the same name in every program."""
+    import hashlib
+    import json
+    from dataclasses import asdict
+
+    definition = json.dumps([group, models, fallbacks, asdict(retry)], sort_keys=True)
+    return f"router-{hashlib.sha256(definition.encode()).hexdigest()[:8]}:{group}"
+
+
+def _remove_earlier(group: str, keep: str) -> None:
+    """Remove the routes earlier definitions of a group left, so their providers' keys stop being needed."""
+    import re
+
+    from .. import routes
+
+    earlier = re.compile(r"router-[0-9a-f]{8}:" + re.escape(group))
+    for name in routes.list_routes():
+        if name != keep and earlier.fullmatch(name):
+            routes.remove_route(name)
+
+
 class Router:
     """LiteLLM's Router: model groups with fallbacks and retries. The local gateway does the work.
 
@@ -277,8 +299,12 @@ class Router:
         )
         router.completion(model="chat", messages=[...])
 
-    Each model_name becomes a route of the same name (theagentrouter.route). Several deployments with
-    one model_name share its traffic. Keys come from the environment: litellm_params api_key values
+    Each model_name becomes a route (theagentrouter.route) named after the group and its definition,
+    such as ``router-1a2b3c4d:chat``, so two programs with a group of the same name keep separate
+    routes, and a group named after a model does not take over that model's calls in other programs.
+    A new definition of a group removes the routes earlier ones left; a Router still using one adds it
+    back on its next call.
+    The Router's methods take the group name. Several deployments with one model_name share its traffic. Keys come from the environment: litellm_params api_key values
     other than os.environ/<the provider's usual variable> are not used, and say so once.
     """
 
@@ -326,22 +352,33 @@ class Router:
         # LiteLLM's Router falls back on nearly any error, including a wrong key or an unknown model.
         on = (401, 403, 404, 408, *routes.RETRY_ON)
         retry = routes.Retry(attempts=num_retries if num_retries is not None else 1, on=on)
-        self.routes = {
-            name: routes.route(name, primary=models, fallbacks=[groups[f] for f in chains.get(name, [])], retry=retry)
-            for name, models in groups.items()
-        }
+        self.routes = {}
+        for name, models in groups.items():
+            later = [groups[f] for f in chains.get(name, [])]
+            self.routes[name] = routes.route(_route_name(name, models, later, retry), models, later, retry)
+            _remove_earlier(name, keep=self.routes[name].name)
+
+    def _target(self, model: str) -> str:
+        from .. import routes
+
+        r = self.routes.get(model)
+        if r is None:
+            return model
+        if routes.get(r.name) is None:  # a newer definition of this group removed it; this Router still uses it
+            routes.route(r.name, list(r.tiers[0]), [list(t) for t in r.tiers[1:]], r.retry)
+        return r.name
 
     def completion(self, model: str, messages: list[Any], **kwargs: Any):
-        return completion(model=model, messages=messages, **kwargs)
+        return completion(model=self._target(model), messages=messages, **kwargs)
 
     async def acompletion(self, model: str, messages: list[Any], **kwargs: Any):
-        return await acompletion(model=model, messages=messages, **kwargs)
+        return await acompletion(model=self._target(model), messages=messages, **kwargs)
 
     def embedding(self, model: str, input: str | list[Any], **kwargs: Any):
-        return embedding(model=model, input=input, **kwargs)
+        return embedding(model=self._target(model), input=input, **kwargs)
 
     async def aembedding(self, model: str, input: str | list[Any], **kwargs: Any):
-        return await aembedding(model=model, input=input, **kwargs)
+        return await aembedding(model=self._target(model), input=input, **kwargs)
 
     def get_model_list(self) -> list[dict[str, Any]]:
         import copy

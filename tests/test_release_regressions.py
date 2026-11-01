@@ -81,14 +81,54 @@ def test_configured_gateway_takes_claude_options_as_the_local_gateway_does(fake,
         assert {"response_format", "reasoning_effort"} <= set(litellm.get_supported_openai_params(name))
 
 
-def test_anthropic_accepts_json_object_without_inventing_a_schema(fake):
-    theagentrouter.completion(
-        model="anthropic/claude-sonnet-4-5",
-        messages=HELLO,
-        api_base=fake.url,
-        response_format={"type": "json_object"},
-    )
+def test_anthropic_json_object_without_a_schema_warns_and_invents_none(fake, monkeypatch):
+    from theagentrouter import anthropic_format
+
+    monkeypatch.setattr(anthropic_format, "_warned", set())
+    with pytest.warns(UserWarning, match="json_object is not applied"):
+        theagentrouter.completion(
+            model="anthropic/claude-sonnet-4-5",
+            messages=HELLO,
+            api_base=fake.url,
+            response_format={"type": "json_object"},
+        )
     assert "output_config" not in fake.requests[-1][2] and "output_format" not in fake.requests[-1][2]
+
+
+def test_an_image_in_a_tool_result_reaches_claude_as_an_image():
+    from theagentrouter import anthropic_format
+
+    image = {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}}
+    messages = [
+        {"role": "user", "content": "Look at the chart."},
+        {"role": "assistant", "tool_calls": [{"id": "t1", "function": {"name": "chart", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "t1", "content": [{"type": "text", "text": "Refunds by day"}, image]},
+        {"role": "assistant", "tool_calls": [{"id": "t2", "function": {"name": "chart", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "t2", "content": [{**image, "cache_control": {"type": "ephemeral"}}]},
+        {"role": "assistant", "tool_calls": [{"id": "t3", "function": {"name": "note", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "t3", "content": [{"type": "text", "text": "done"}]},
+    ]
+    _, out = anthropic_format.convert_messages(messages)
+    results = [b for m in out for b in m["content"] if isinstance(b, dict) and b.get("type") == "tool_result"]
+    png = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="}}
+    assert results[0]["content"] == [{"type": "text", "text": "Refunds by day"}, png]
+    assert results[1]["content"] == [png] and results[1]["cache_control"] == {"type": "ephemeral"}
+    assert results[2]["content"] == "done"
+
+
+@pytest.mark.parametrize(
+    "body,cls",
+    [
+        ({"error": {"message": "Token budget per minute exceeded", "type": "rate_limit"}}, exceptions.RateLimitError),
+        ({"error": {"message": "Request blocked", "code": "budget_exceeded"}}, exceptions.BudgetExceededError),
+        ({"error": {"message": "Budget exceeded for project payments"}}, exceptions.BudgetExceededError),
+    ],
+)
+def test_only_a_budget_block_is_a_budget_error(body, cls):
+    import json
+
+    error = exceptions.from_http(429, json.dumps(body), "openai/gpt-4o", "openai")
+    assert type(error) is cls
 
 
 def test_openai_response_details_and_serialization(fake):

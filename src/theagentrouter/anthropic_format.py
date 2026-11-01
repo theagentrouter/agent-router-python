@@ -12,6 +12,7 @@ their signatures, which Anthropic needs back in a tool-use turn when thinking is
 from __future__ import annotations
 
 import json
+import warnings
 from collections.abc import Iterator
 from typing import Any
 
@@ -47,6 +48,8 @@ SUPPORTED_PARAMS = frozenset(
         "response_format",
     )
 )
+
+_warned: set[str] = set()
 
 _STOP = {
     "end_turn": "stop",
@@ -136,6 +139,18 @@ def _user_blocks(content: Any) -> list[dict[str, Any]]:
     return blocks
 
 
+def _tool_content(content: Any) -> str | list[dict[str, Any]]:
+    """A tool result's content: text as a string; images and documents as blocks beside the text.
+
+    cache_control stays off the inner blocks: the caller puts it on the tool_result itself.
+    """
+    if isinstance(content, list):
+        if all(isinstance(p, dict) and p.get("type") == "text" for p in content):
+            return _text_of(content)
+        return [{k: v for k, v in b.items() if k != "cache_control"} for b in _user_blocks(content)]
+    return _text_of(content) if isinstance(content, str) or content is None else str(content)
+
+
 def _thinking_blocks(message: dict[str, Any]) -> list[dict[str, Any]]:
     """The assistant's thinking blocks, as Anthropic sent them (signature included)."""
     out = []
@@ -194,7 +209,7 @@ def convert_messages(messages: list[Any]) -> tuple[str | list[dict[str, Any]] | 
             result = {
                 "type": "tool_result",
                 "tool_use_id": m.get("tool_call_id"),
-                "content": _text_of(m.get("content")) or str(m.get("content") or ""),
+                "content": _tool_content(m.get("content")),
             }
             for part in m.get("content") if isinstance(m.get("content"), list) else []:
                 _cached(result, part)
@@ -336,6 +351,14 @@ def build_body(
                 **(body.get("output_config") or {}),
                 "format": {"type": "json_schema", "schema": schema},
             }
+        elif response_format.get("type") == "json_object" and "json_object" not in _warned:
+            _warned.add("json_object")
+            warnings.warn(
+                "Claude has no JSON mode without a schema: response_format json_object is not applied. "
+                "Pass a JSON schema (type json_schema) to get JSON from Claude.",
+                UserWarning,
+                stacklevel=4,
+            )
     if params.get("extra_body"):
         body.update(params["extra_body"])
     if stream:

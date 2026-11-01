@@ -48,7 +48,7 @@ A full example: [`examples/from_litellm/change_the_import.py`](../examples/from_
 | `drop_params` | Same, on the call or on the module, off by default: with it, Claude drops the parameters it does not take (`seed`, `presence_penalty` and others) instead of raising. `n=1` is always fine |
 | `set_verbose`, `suppress_debug_info` | Accepted |
 | Response types under `litellm.types.utils` (`ModelResponse`, `Choices`, `Message`, `Usage` and others) | Same names |
-| `Router` | For `model_list`, `fallbacks` and `num_retries`: the groups become routes in the local gateway, which does the retries and fallbacks. Deployments with one `model_name` share its traffic; keys come from the environment. Other `Router` options warn and are ignored. See [Routes](usage.md#routes-fallbacks-retries-and-names-of-your-own) |
+| `Router` | For `model_list`, `fallbacks` and `num_retries`: the groups become routes in the local gateway, which does the retries and fallbacks. Each route is named after its group and its definition (`router-1a2b3c4d:chat`), so programs with a group of the same name keep their own routes, and a group named after a model does not take over that model in other programs. Call the Router's methods with the group name. A new definition of a group removes the route an earlier one left, and a program still using that route adds it back on its next call. Any change restarts the shared gateway on the next call. Deployments with one `model_name` share its traffic; keys come from the environment. Other `Router` options warn and are ignored. See [Routes](usage.md#routes-fallbacks-retries-and-names-of-your-own) |
 
 ## What is missing
 

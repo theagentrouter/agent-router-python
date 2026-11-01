@@ -99,8 +99,8 @@ class Limit:
     per: str = "minute"
 
     def __post_init__(self) -> None:
-        if self.requests < 1:
-            raise ValueError("Limit.requests must be 1 or more")
+        if isinstance(self.requests, bool) or not isinstance(self.requests, int) or not 1 <= self.requests < 2**32:
+            raise ValueError("Limit.requests must be a whole number from 1 to 4294967295")
         if self.per not in LIMIT_PER:
             raise ValueError(f"Limit.per must be one of {', '.join(LIMIT_PER)}")
 

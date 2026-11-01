@@ -184,7 +184,17 @@ _CONTEXT_HINTS = (
     "context window",
 )
 _POLICY_HINTS = ("content policy", "content_policy", "content_filter", "safety system")
-_BUDGET_HINTS = ("budget",)
+# A 429 is a budget block only when it says so: Agent Router sends code "budget_exceeded", and a
+# provider's "token budget per minute exceeded" is an ordinary rate limit that is worth retrying.
+_BUDGET_CODES = ("budget_exceeded",)
+_BUDGET_HINTS = ("budget exceeded", "budget has been exceeded")
+
+
+def _code_of(body: Any) -> str:
+    err = body.get("error", body) if isinstance(body, dict) else None
+    if not isinstance(err, dict):
+        return ""
+    return f"{err.get('code') or ''} {err.get('type') or ''}".lower()
 
 
 def _message_of(body: Any, fallback: str) -> str:
@@ -210,7 +220,9 @@ def from_http(status: int, text: str, model: str | None, provider: str | None) -
         cls = ContextWindowExceededError
     elif cls is BadRequestError and any(h in lower for h in _POLICY_HINTS):
         cls = ContentPolicyViolationError
-    elif cls is RateLimitError and any(h in lower for h in _BUDGET_HINTS):
+    elif cls is RateLimitError and (
+        any(c in _code_of(body).split() for c in _BUDGET_CODES) or any(h in lower for h in _BUDGET_HINTS)
+    ):
         cls = BudgetExceededError
     prefix = f"{provider}: " if provider else ""
     return cls(prefix + message, model=model, llm_provider=provider, status_code=status, body=body)
