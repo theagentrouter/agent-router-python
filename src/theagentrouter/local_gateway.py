@@ -945,7 +945,10 @@ def stop(state: dict | None = None, timeout: float = 15.0) -> None:
 def _is_gateway(pid: int) -> bool:
     """Whether the process is still aigw. Asked only when stopping, never on the request path."""
     try:
-        result = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True, timeout=1)
+        # -ww: without a terminal, ps on Linux cuts the line at 80 columns, before a long path's aigw.
+        result = subprocess.run(
+            ["ps", "-ww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True, timeout=1
+        )
     except (OSError, subprocess.SubprocessError):
         return True  # no ps, as on Windows: the stored number is all there is to go on
     command = result.stdout.strip()
