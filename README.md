@@ -181,7 +181,7 @@ Join the [Agent Router Discord](https://discord.gg/xuxtPq43gZ) to ask questions.
 
 ## License
 
-[Apache License 2.0](LICENSE).
+[Apache License 2.0](LICENSE). Documentation in [docs/](docs/) is under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 ---
 
