@@ -56,6 +56,64 @@ def test_interrupted_start_kills_and_reaps_the_child(env, tmp_path, monkeypatch)
     assert not (local_gateway.folder() / "state.json").exists()
 
 
+def test_a_gateway_whose_admin_page_took_its_port_is_not_used(env, monkeypatch, tmp_path):
+    # Envoy gets its admin page's port from the operating system, and it can be the one chosen for the gateway.
+    program = tmp_path / "aigw"
+    line = "Envoy AI Gateway listening on http://localhost:12345 (admin http://localhost:12345) after 2.3s"
+    program.write_text(f"#!{sys.executable}\nimport time\nprint({line!r}, flush=True)\ntime.sleep(60)\n")
+    program.chmod(0o700)
+    local_gateway._private_dir(local_gateway.folder())
+    monkeypatch.setattr(local_gateway, "_binary", lambda: str(program))
+    monkeypatch.setattr(local_gateway, "_listening", lambda port: True)
+    started = []
+    popen = subprocess.Popen
+
+    def record(*args, **kwargs):
+        proc = popen(*args, **kwargs)
+        started.append(proc)
+        return proc
+
+    monkeypatch.setattr(local_gateway.subprocess, "Popen", record)
+    with pytest.raises(local_gateway._PortTaken):
+        local_gateway._launch(
+            local_gateway.folder(),
+            dict(os.environ),
+            local_gateway.folder() / "aigw.log",
+            ["openai"],
+            ["openai/gpt-4o-mini"],
+            {},
+            12345,
+            12346,
+        )
+    assert started[0].poll() is not None  # stopped, not left holding the port
+    assert not (local_gateway.folder() / "state.json").exists()
+
+
+def test_the_start_chooses_new_ports_when_the_admin_page_took_one(env, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "acme")
+    monkeypatch.setattr(local_gateway, "PORT", 0)
+    monkeypatch.setattr(local_gateway, "ADMIN_PORT", 0)
+    monkeypatch.setattr(local_gateway, "_busy_internal", lambda: None)
+    free = iter([5001, 5002, 5003, 5004])
+    monkeypatch.setattr(local_gateway, "_free_port", lambda: next(free))
+    launched = []
+
+    class Done(Exception):
+        pass
+
+    def launch(home, environ, log_path, providers, models, routes, port, admin_port):
+        log_path.write_text("")
+        launched.append(port)
+        if len(launched) == 1:
+            raise local_gateway._PortTaken("taken")
+        raise Done
+
+    monkeypatch.setattr(local_gateway, "_launch", launch)
+    with pytest.raises(Done):
+        local_gateway._start(["openai"], ["openai/gpt-4o-mini"], {})
+    assert launched == [5001, 5003]
+
+
 def test_stop_reaps_child_and_removes_key_files(env, monkeypatch, tmp_path):
     runtime = tmp_path / "runtime"
     monkeypatch.setattr(local_gateway, "_runtime_dir", lambda: runtime)

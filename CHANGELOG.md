@@ -2,6 +2,12 @@
 
 All notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Fixed
+
+- The local gateway could start, rarely, with Envoy's admin page on the port the SDK calls, so every call got "invalid path" until `local_gateway.stop()`. It now checks for this as it starts, and chooses a new port. 0.1.0a9 said this was fixed, but its change covered a different port.
+
 ## [0.1.0a9] - 2026-11-03
 
 ### Changed

@@ -299,8 +299,8 @@ def test_new_provider_restarts_the_gateway(env, monkeypatch):
     assert "bedrock/anthropic.claude-sonnet-4-5" in models and "openai/gpt-4o-mini" in models
 
 
-def test_the_gateway_and_its_admin_page_get_different_ports(env, monkeypatch):
-    # Two calls for a free port can return the same one. Envoy's admin page would then answer the SDK's calls.
+def test_the_gateway_and_aigws_admin_server_get_different_ports(env, monkeypatch):
+    # Two calls for a free port can return the same one.
     monkeypatch.setenv("OPENAI_API_KEY", "acme")
     free = iter([5001, 5001, 5001, 5002])
     monkeypatch.setattr(local_gateway, "_free_port", lambda: next(free))

@@ -1055,14 +1055,17 @@ def _start(providers: list[str], models: list[str], routes: dict | None = None) 
     log_path = home / "aigw.log"
     for attempt in range(START_ATTEMPTS):
         port, admin_port = PORT or _free_port(), ADMIN_PORT or _free_port()
-        while admin_port == port:  # two calls can return the same port, and Envoy's admin page would answer on it
+        while admin_port == port:  # two calls can return the same port
             admin_port = _free_port()
         try:
             proc = _launch(home, env, log_path, providers, models, routes, port, admin_port)
             break
-        except exceptions.APIConnectionError:
-            # Another program took a chosen port before aigw bound it: choose again.
-            taken = "address already in use" in log_path.read_text(errors="replace").lower()
+        except exceptions.APIConnectionError as error:
+            # Something took a chosen port before aigw bound it, another program or Envoy itself: choose again.
+            taken = (
+                isinstance(error, _PortTaken)
+                or "address already in use" in log_path.read_text(errors="replace").lower()
+            )
             if not taken or attempt == START_ATTEMPTS - 1 or (PORT and ADMIN_PORT):
                 raise
             _busy_internal()
@@ -1095,6 +1098,10 @@ def _start(providers: list[str], models: list[str], routes: dict | None = None) 
         file=sys.stderr,
     )
     return state
+
+
+class _PortTaken(exceptions.APIConnectionError):
+    """A port chosen for the gateway was taken before the gateway bound it."""
 
 
 def _launch(
@@ -1132,6 +1139,10 @@ def _launch(
                     f"the local gateway stopped while starting (log: {log_path}): {detail}"
                 )
             if "listening on" in "\n".join(lines) and _listening(port):
+                # Envoy gets its admin page's port from the operating system as it starts, and that can be the
+                # port chosen for the gateway, free until the listener binds it. The admin page would answer every call.
+                if _envoy_admin(log_path) == port:
+                    raise _PortTaken(f"Envoy's admin page took port {port}, chosen for the local gateway")
                 return proc
             time.sleep(0.2)
         raise exceptions.Timeout(f"the local gateway did not start within {START_TIMEOUT:.0f}s (log: {log_path})")
