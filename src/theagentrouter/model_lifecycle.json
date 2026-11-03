@@ -9,7 +9,9 @@
   "anthropic/claude-sonnet-4-0": "Retired on June 15, 2026",
   "anthropic/claude-sonnet-4-20250514": "Retired on June 15, 2026",
   "deepinfra/Austism/chronos-hermes-13b-v2": "Retired on DeepInfra on 2024-10-03. Replacement: Gryphe/MythoMax-L2-13b.",
+  "deepinfra/Bria/fibo": "Scheduled for retirement on DeepInfra on 2026-10-27. Replacement: Bria/fibo-2.0.",
   "deepinfra/CompVis/stable-diffusion-v1-4": "Retired on DeepInfra on 2024-09-27. Replacement: stabilityai/sdxl-turbo.",
+  "deepinfra/Gryphe/MythoMax-L2-13b": "Scheduled for retirement on DeepInfra on 2026-10-29. Replacement: Sao10K/L3-8B-Lunaris-v1-Turbo.",
   "deepinfra/Gryphe/MythoMax-L2-13b-turbo": "Retired on DeepInfra on 2024-06-19. Replacement: Gryphe/MythoMax-L2-13b.",
   "deepinfra/KoboldAI/LLaMA2-13B-Tiefighter": "Retired on DeepInfra on 2024-11-25. Replacement: Gryphe/MythoMax-L2-13b.",
   "deepinfra/MiniMaxAI/MiniMax-M2": "Retired on DeepInfra on 2026-09-10. Replacement: MiniMaxAI/MiniMax-M3.",
@@ -17,6 +19,8 @@
   "deepinfra/MiniMaxAI/MiniMax-M2.5": "Retired on DeepInfra on 2026-09-10. Replacement: MiniMaxAI/MiniMax-M3.",
   "deepinfra/MiniMaxAI/MiniMax-M2.7": "Retired on DeepInfra on 2026-09-10. Replacement: MiniMaxAI/MiniMax-M3.",
   "deepinfra/MiniMaxAI/MiniMax-M2.7-Turbo": "Retired on DeepInfra on 2026-09-30. Replacement: MiniMaxAI/MiniMax-M3.",
+  "deepinfra/NousResearch/Hermes-3-Llama-3.1-405B": "Scheduled for retirement on DeepInfra on 2026-11-02. Replacement: deepseek-ai/DeepSeek-V4.1-Flash-1017.",
+  "deepinfra/NousResearch/Hermes-3-Llama-3.1-70B": "Scheduled for retirement on DeepInfra on 2026-11-02. Replacement: deepseek-ai/DeepSeek-V4.1-Flash-1017.",
   "deepinfra/NovaSky-AI/Sky-T1-32B-Preview": "Retired on DeepInfra on 2025-07-26. Replacement: Qwen/Qwen3-32B.",
   "deepinfra/PaddlePaddle/PaddleOCR-VL-0.9B": "Retired on DeepInfra on 2026-05-07. Replacement: google/gemma-4-31B-it.",
   "deepinfra/Phind/Phind-CodeLlama-34B-v2": "Retired on DeepInfra on 2026-06-11. Replacement: meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo.",
@@ -82,14 +86,14 @@
   "deepinfra/deepseek-ai/DeepSeek-V3-0324-Turbo": "Retired on DeepInfra on 2025-09-02. Replacement: deepseek-ai/DeepSeek-V3-0324.",
   "deepinfra/deepseek-ai/DeepSeek-V3.1-Terminus": "Retired on DeepInfra on 2026-08-17. Replacement: deepseek-ai/DeepSeek-V4-Flash-0731.",
   "deepinfra/deepseek-ai/DeepSeek-V3.2-Exp": "Retired on DeepInfra on 2025-12-11. Replacement: deepseek-ai/DeepSeek-V3.2.",
-  "deepinfra/deepseek-ai/Janus-Pro-1B": "Scheduled for retirement on DeepInfra on 2026-10-08.",
-  "deepinfra/deepseek-ai/Janus-Pro-7B": "Scheduled for retirement on DeepInfra on 2026-10-08.",
   "deepinfra/google/codegemma-7b-it": "Retired on DeepInfra on 2025-04-01. Replacement: google/gemma-3-12b-it.",
   "deepinfra/google/gemini-2.0-flash-001": "Retired on DeepInfra on 2026-02-06. Replacement: google/gemini-2.5-flash.",
   "deepinfra/google/gemma-1.1-7b-it": "Retired on DeepInfra on 2025-04-01. Replacement: google/gemma-3-12b-it.",
   "deepinfra/google/gemma-2-27b-it": "Retired on DeepInfra on 2025-04-01. Replacement: google/gemma-3-27b-it.",
   "deepinfra/google/gemma-2-9b-it": "Retired on DeepInfra on 2025-04-01. Replacement: google/gemma-3-12b-it.",
   "deepinfra/google/gemma-4-E4B-it": "Retired on DeepInfra on 2026-10-01. Replacement: google/gemma-4-31B-it-turbo.",
+  "deepinfra/ibm-granite/granite-4.2-30b": "Scheduled for retirement on DeepInfra on 2026-10-18. Replacement: ibm-granite/granite-4.2-8b.",
+  "deepinfra/ibm-granite/granite-4.2-3b": "Scheduled for retirement on DeepInfra on 2026-10-18. Replacement: ibm-granite/granite-4.2-8b.",
   "deepinfra/inclusionAI/Ling-3.0-flash-Fin": "Retired on DeepInfra on 2026-10-09. Replacement: inclusionAI/Ling-3.0-flash-VL.",
   "deepinfra/lizpreciatior/lzlv_70b_fp16_hf": "Retired on DeepInfra on 2025-11-06. Replacement: meta-llama/Llama-3.3-70B-Instruct-Turbo.",
   "deepinfra/mattshumer/Reflection-Llama-3.1-70B": "Retired on DeepInfra on 2026-06-11. Replacement: meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo.",
@@ -135,6 +139,7 @@
   "deepinfra/nvidia/Nemotron-3-Nano-30B-A3B": "Scheduled for retirement on DeepInfra on 2026-10-08. Replacement: nvidia/NVIDIA-Nemotron-3.5-Lightning.",
   "deepinfra/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning": "Retired on DeepInfra on 2026-07-16. Replacement: nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B.",
   "deepinfra/nvidia/Nemotron-4-340B-Instruct": "Retired on DeepInfra on 2025-07-11. Replacement: NousResearch/Hermes-3-Llama-3.1-405B.",
+  "deepinfra/openai/gpt-oss-120b-Turbo": "Retired on DeepInfra on 2026-10-20. Replacement: openai/gpt-oss-120b.",
   "deepinfra/openbmb/MiniCPM-Llama3-V-2_5": "Retired on DeepInfra on 2026-07-17. Replacement: google/gemma-4-31B-it.",
   "deepinfra/openchat/openchat-3.6-8b": "Retired on DeepInfra on 2026-07-16. Replacement: meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo.",
   "deepinfra/openchat/openchat_3.5": "Retired on DeepInfra on 2026-07-16. Replacement: meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo.",
@@ -147,6 +152,7 @@
   "deepinfra/stepfun-ai/Step-3.5-Flash": "Retired on DeepInfra on 2026-06-29. Replacement: stepfun-ai/Step-3.7-Flash.",
   "deepinfra/stepfun-ai/Step-3.7-Flash": "Retired on DeepInfra on 2026-10-01. Replacement: XiaomiMiMo/MiMo-V2.6-Flash.",
   "deepinfra/tencent/Hy3": "Scheduled for retirement on DeepInfra on 2026-10-08. Replacement: tencent/Hy4-preview.",
+  "deepinfra/thinkingmachines/Inkling": "Retired on DeepInfra on 2026-10-22. Replacement: thinkingmachines/Inkling-Small.",
   "deepinfra/zai-org/GLM-4.5": "Retired on DeepInfra on 2025-10-24. Replacement: zai-org/GLM-4.6.",
   "deepinfra/zai-org/GLM-4.5-Air": "Retired on DeepInfra on 2025-10-07. Replacement: openai/gpt-oss-20b.",
   "deepinfra/zai-org/GLM-4.6V": "Retired on DeepInfra on 2026-04-30. Replacement: google/gemma-4-26B-A4B-it.",
@@ -159,8 +165,13 @@
   "openai/computer-use-preview": "retires on 2026-07-23",
   "openai/dall-e-2": "retires on 2026-05-12",
   "openai/dall-e-3": "retires on 2026-05-12",
+  "openai/gpt-3.5-turbo": "Retired October 23, 2026. Migrate to gpt-5.6-terra.",
+  "openai/gpt-4": "Retired October 23, 2026. Migrate to gpt-5.6-sol.",
+  "openai/gpt-4-turbo": "Retired October 23, 2026. Migrate to gpt-5.6-sol.",
   "openai/gpt-4-turbo-preview": "retires on 2026-03-26",
+  "openai/gpt-4.1-nano": "Retired October 23, 2026. Migrate to gpt-5.6-luna.",
   "openai/gpt-4.5-preview": "retires on 2025-07-14",
+  "openai/gpt-4o-2024-05-13": "Retired October 23, 2026. Migrate to gpt-5.6-sol.",
   "openai/gpt-4o-audio-preview": "Retired May 7, 2026. Migrate to gpt-audio-1.5.",
   "openai/gpt-4o-mini-audio-preview": "Retired May 7, 2026. Migrate to gpt-audio-mini.",
   "openai/gpt-4o-mini-search-preview": "retires on 2026-07-23",
@@ -178,9 +189,14 @@
   "openai/gpt-audio-mini": "Retires on January 20, 2027. Replacement: gpt-audio-1.5.",
   "openai/gpt-daybreak-blue-latest": "OpenAI deprecated this alias with no shutdown date. Use the latest cyber model available to you.",
   "openai/gpt-daybreak-red-latest": "OpenAI deprecated this alias with no shutdown date. Use the latest cyber model available to you.",
+  "openai/gpt-image-1": "Retired October 23, 2026. Migrate to gpt-image-2.5-sunburst or gpt-image-2.5-flare.",
+  "openai/o1": "Retired October 23, 2026. Migrate to gpt-5.6-sol.",
   "openai/o1-mini": "retires on 2025-10-27",
   "openai/o1-preview": "retires on 2025-07-28",
+  "openai/o1-pro": "Retired October 23, 2026. Migrate to gpt-5.6-sol with reasoning.mode: pro.",
   "openai/o3-deep-research": "retires on 2026-07-23",
+  "openai/o3-mini": "Retired October 23, 2026. Migrate to gpt-5.6-sol.",
+  "openai/o4-mini": "Retired October 23, 2026. Migrate to gpt-5.6-terra.",
   "openai/o4-mini-deep-research": "retires on 2026-07-23",
   "xai/grok-imagine-image-quality": "Retires on November 2, 2026. After that date requests are served by grok-imagine-image-2.0 with quality set to low at that model's per-image price."
  },
@@ -192,14 +208,6 @@
   "anthropic/claude-sonnet-4-5-20250929": {
    "date": "2026-11-30",
    "reason": "replaced by claude-sonnet-5-5"
-  },
-  "deepinfra/ibm-granite/granite-4.2-30b": {
-   "date": "2026-10-18",
-   "reason": "Scheduled for retirement on DeepInfra on 2026-10-18. Replacement: ibm-granite/granite-4.2-8b."
-  },
-  "deepinfra/ibm-granite/granite-4.2-3b": {
-   "date": "2026-10-18",
-   "reason": "Scheduled for retirement on DeepInfra on 2026-10-18. Replacement: ibm-granite/granite-4.2-8b."
   },
   "gemini/gemini-2.5-flash-image": {
    "date": "2027-03-15",
@@ -223,27 +231,7 @@
   },
   "openai/chatgpt-image-latest": {
    "date": "2026-12-01",
-   "reason": "retires on 2026-12-01"
-  },
-  "openai/gpt-3.5-turbo": {
-   "date": "2026-10-23",
-   "reason": "retires on 2026-10-23"
-  },
-  "openai/gpt-4": {
-   "date": "2026-10-23",
-   "reason": "retires on 2026-10-23"
-  },
-  "openai/gpt-4-turbo": {
-   "date": "2026-10-23",
-   "reason": "retires on 2026-10-23"
-  },
-  "openai/gpt-4.1-nano": {
-   "date": "2026-10-23",
-   "reason": "retires on 2026-10-23"
-  },
-  "openai/gpt-4o-2024-05-13": {
-   "date": "2026-10-23",
-   "reason": "retires on 2026-10-23"
+   "reason": "Retires on December 1, 2026. Replacement: gpt-image-2.5-sunburst or gpt-image-2.5-flare."
   },
   "openai/gpt-4o-2024-08-06": {
    "date": "2027-01-14",
@@ -281,41 +269,21 @@
    "date": "2027-04-01",
    "reason": "Retires on April 1, 2027. Replacement: gpt-6-luna."
   },
-  "openai/gpt-image-1": {
-   "date": "2026-10-23",
-   "reason": "retires on 2026-10-23"
-  },
   "openai/gpt-image-1-mini": {
    "date": "2026-12-01",
-   "reason": "retires on 2026-12-01"
+   "reason": "Retires on December 1, 2026. Replacement: gpt-image-2.5-sunburst or gpt-image-2.5-flare."
   },
   "openai/gpt-image-1.5": {
    "date": "2026-12-01",
-   "reason": "retires on 2026-12-01"
-  },
-  "openai/o1": {
-   "date": "2026-10-23",
-   "reason": "retires on 2026-10-23"
-  },
-  "openai/o1-pro": {
-   "date": "2026-10-23",
-   "reason": "retires on 2026-10-23"
+   "reason": "Retires on December 1, 2026. Replacement: gpt-image-2.5-sunburst or gpt-image-2.5-flare."
   },
   "openai/o3": {
    "date": "2026-12-11",
    "reason": "replaced by gpt-5.6-sol"
   },
-  "openai/o3-mini": {
-   "date": "2026-10-23",
-   "reason": "retires on 2026-10-23"
-  },
   "openai/o3-pro": {
    "date": "2026-12-11",
    "reason": "replaced by gpt-5.6-sol with reasoning.mode: pro"
-  },
-  "openai/o4-mini": {
-   "date": "2026-10-23",
-   "reason": "succeeded by GPT-5 mini"
   }
  }
 }
