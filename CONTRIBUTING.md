@@ -18,7 +18,7 @@ Thank you for helping. Small, focused pull requests are easiest to review.
 
 ## Sign-off
 
-Every commit needs a `Signed-off-by: Your Name <you@example.com>` line, with your real name. It certifies the [Developer Certificate of Origin](https://developercertificate.org/): you wrote the change, or have the right to submit it under this project's license. `git commit -s` adds the line.
+Every commit needs a `Signed-off-by: Your Name <you@example.com>` line, with your real name. It certifies the [Developer Certificate of Origin](https://developercertificate.org/): you wrote the change, or have the right to submit it under this project's license. CI checks every commit in a pull request for this line. `git commit -s` adds the line.
 
 ## Using AI tools
 

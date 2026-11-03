@@ -93,3 +93,27 @@ jobs:
 
   local-gateway:
     uses: ./.github/workflows/local-gateway-build.yml
+
+  sign-off:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Every commit is signed off
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          commits=$(git rev-list --no-merges "$BASE..$HEAD")
+          missing=0
+          for commit in $commits; do
+            if ! git show -s --format=%B "$commit" | grep -q '^Signed-off-by: .* <.*@.*>$'; then
+              echo "::error::Commit ${commit:0:7} has no Signed-off-by line. Use git commit -s."
+              missing=1
+            fi
+          done
+          echo "Commits checked: $(echo "$commits" | wc -w)"
+          exit "$missing"
