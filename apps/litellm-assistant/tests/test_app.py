@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The app's own features, through the SDK under test, against the fake provider."""
 
 import pytest

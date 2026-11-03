@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A typical LiteLLM script, moved to theagentrouter by changing one import.
 
 Everything below the import is written for LiteLLM: a tool call, the answer, LiteLLM's error

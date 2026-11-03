@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The local gateway: Agent Router's ``aigw``, run by the SDK on the developer's computer.
 
 ``pip install theagentrouter`` also installs ``theagentrouter-local-gateway`` on macOS 13+ (Apple chips)

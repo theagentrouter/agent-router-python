@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """LiteLLM's callbacks for completion() and acompletion(), for code that sets litellm.success_callback.
 
 Each entry is a function ``fn(kwargs, response, start_time, end_time)`` or a logger object with

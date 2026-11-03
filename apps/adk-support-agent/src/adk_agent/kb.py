@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Local Markdown/text retrieval using SQLite FTS5 and BM25 ranking."""
 
 import re

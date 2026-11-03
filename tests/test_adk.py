@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A real Google ADK agent on agentrouter, over HTTP to the fake provider. Skipped without google-adk.
 
 Run in an environment that has google-adk and not litellm, so only agentrouter can answer

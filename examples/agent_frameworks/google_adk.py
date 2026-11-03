@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A Google ADK agent on theagentrouter, with no LiteLLM installed.
 
 pip install theagentrouter google-adk

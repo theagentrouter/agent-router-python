@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """An OpenAI Agents SDK agent on theagentrouter, with no LiteLLM installed.
 
 pip install theagentrouter openai-agents

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Errors keep LiteLLM's names, so the same except clauses work. Needs OPENAI_API_KEY.
 
 OPENAI_API_KEY=... python examples/from_litellm/litellm_errors.py

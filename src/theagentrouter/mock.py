@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """LiteLLM's mock_response: an answer made on this computer, for tests. No gateway starts and no provider is called.
 
 As in LiteLLM, a call is mocked when it has ``mock_response``, ``mock_tool_calls`` or ``mock_timeout``:

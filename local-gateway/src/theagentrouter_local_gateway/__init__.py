@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Agent Router's aigw program, for theagentrouter's local gateway.
 
 Installed with ``pip install theagentrouter``. The SDK starts the program itself. To run an exported

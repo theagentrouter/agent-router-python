@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Routes: fallbacks and retries done by the local gateway, and LiteLLM's Router on top of them.
 
 The end-to-end tests start the real aigw against the fake provider and are skipped unless the

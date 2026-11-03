@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A route with a fallback: when the primary fails, the next model answers.
 
 The local gateway serves routes. The primary here is a model OpenAI does not have, so OpenAI

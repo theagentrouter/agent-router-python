@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The public surface must match surface.txt. After a deliberate change, run scripts/surface.py --write."""
 
 from __future__ import annotations

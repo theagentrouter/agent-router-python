@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Starting and stopping the gateway, using real child processes, locks, files and HTTP requests."""
 
 import json

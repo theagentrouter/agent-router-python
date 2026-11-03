@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """LiteLLM's behaviour, checked on LiteLLM and on Agent Router's SDK.
 
 Each test states what LiteLLM does. On LiteLLM the run proves the expectation; on Agent Router's SDK

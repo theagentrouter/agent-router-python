@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Small JSON files the SDK reads on every call: settings, routes and the local gateway's state.
 
 Each is read again only when it changes (its size, modification time or inode), so a call through

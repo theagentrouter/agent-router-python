@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Shared by the apps' tests: which SDK is under test, and the repository's fake provider.
 
 Every run names its SDK with APP_SDK, and the run stops when the environment holds a different

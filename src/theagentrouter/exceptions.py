@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Errors with LiteLLM's class names, so code that catches them by name keeps working."""
 
 from __future__ import annotations

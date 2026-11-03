@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """What the app does, each written the way LiteLLM's docs show it."""
 
 from __future__ import annotations

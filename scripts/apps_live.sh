@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
 # The apps against real providers, on real LiteLLM and on this SDK. Needs OPENAI_API_KEY and
 # ANTHROPIC_API_KEY in the environment or in .env. Costs a few cents. Run `make apps` first: it
 # builds the environments.

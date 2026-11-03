@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Response types shaped like LiteLLM's, so framework adapters read the same fields."""
 
 from __future__ import annotations

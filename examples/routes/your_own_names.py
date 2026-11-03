@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Names of your own for models, so code says "fast" or "smart" and the choice lives in one place.
 
 Routes are saved on this computer (~/.agentrouter/routes.json) and every program can use them,

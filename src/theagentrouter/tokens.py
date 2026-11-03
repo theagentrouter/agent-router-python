@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """LiteLLM's token_counter(): exact from the gateway where the provider can count, an estimate otherwise.
 
 Agent Router counts tokens for OpenAI (``/responses/input_tokens``) and Anthropic

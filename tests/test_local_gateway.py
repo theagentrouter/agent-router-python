@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The local gateway: config, where calls go, and (with aigw installed) the real program.
 
 The end-to-end tests run only when theagentrouter-local-gateway is installed, which needs an aigw

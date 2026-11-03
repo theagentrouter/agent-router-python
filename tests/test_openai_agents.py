@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A real OpenAI Agents SDK agent on theagentrouter, over HTTP to the fake provider.
 
 The Agents SDK's LitellmModel calls `litellm.acompletion`; `install_as_litellm()` answers that import.

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A reply that follows a JSON schema, with response_format. Needs OPENAI_API_KEY.
 
 OPENAI_API_KEY=... python examples/first_calls/json_schema.py

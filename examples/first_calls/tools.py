@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A tool call and the answer that uses its result. Needs ANTHROPIC_API_KEY.
 
 Tools are written in the OpenAI format for every provider; change MODEL to an openai/ model and

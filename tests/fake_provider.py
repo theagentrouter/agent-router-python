@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A local HTTP server that answers like OpenAI Chat Completions and Anthropic Messages.
 
 Behaviour, for both formats:

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A route with a request limit: the local gateway lets 3 requests a minute through and answers the rest with 429.
 
 Useful to stop an agent stuck in a loop from running up a bill. The limit counts requests, not

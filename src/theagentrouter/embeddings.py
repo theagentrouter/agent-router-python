@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Embeddings: LiteLLM's embedding() and aembedding(), sent in the OpenAI format.
 
 The call goes where a completion for the same model would go (see routing): to the local gateway,

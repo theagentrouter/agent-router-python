@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """OpenAI Chat Completions: build the request and read the response and the stream."""
 
 from __future__ import annotations

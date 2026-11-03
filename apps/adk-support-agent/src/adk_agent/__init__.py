@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Google ADK support agent.
 
 On Agent Router's SDK, LiteLLM's imports are replaced before any ADK module loads; that call is the

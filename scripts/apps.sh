@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
 # The apps under apps/, offline against the fake provider, on real LiteLLM and on this SDK.
 #   make apps                       both SDKs, both apps
 #   make apps SDK=litellm APP=litellm-assistant

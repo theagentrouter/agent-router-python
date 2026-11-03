@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """List the SDK's public surface: functions with their arguments, classes, values and settings.
 
     python3 scripts/surface.py            # print it

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Compatibility surfaces for code written against other SDKs."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A real Google ADK agent on real providers, through the SDK, with LiteLLM not installed.
 
 Needs google-adk in the environment and OPENAI_API_KEY and/or ANTHROPIC_API_KEY; costs a few cents.

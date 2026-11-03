@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The smallest program: one call, one answer. Needs OPENAI_API_KEY.
 
 OPENAI_API_KEY=... python examples/first_calls/one_call.py

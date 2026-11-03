@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """OpenAI's Responses API with LiteLLM's `responses`: a reply, a follow-up that continues it, and what it cost. Needs OPENAI_API_KEY.
 
 OPENAI_API_KEY=... python examples/provider_apis/openai_responses.py

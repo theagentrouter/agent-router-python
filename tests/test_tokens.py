@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """token_counter: the gateway's count for OpenAI and Anthropic, LiteLLM's estimate otherwise."""
 
 from __future__ import annotations

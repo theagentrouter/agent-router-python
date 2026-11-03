@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """What a call cost, and what a model can do, from the bundled model list. Needs OPENAI_API_KEY.
 
 OPENAI_API_KEY=... python examples/from_litellm/cost_and_model_info.py

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """LiteLLM's Anthropic Messages API: ``litellm.anthropic.messages.create`` and ``acreate``, through the gateway.
 
 The request and the reply are Anthropic's own format, so every Messages feature works: prompt caching,

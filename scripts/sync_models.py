@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Refresh the bundled model table from theagentrouter/agent-router-models.
 
     python3 scripts/sync_models.py

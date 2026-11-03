@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """ADK function tools that work with actual KB passages and report files."""
 
 from pathlib import Path

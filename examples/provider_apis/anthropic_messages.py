@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Anthropic's Messages API with LiteLLM's `anthropic.messages.create`: prompt caching and thinking. Needs ANTHROPIC_API_KEY.
 
 The request and the reply are in Anthropic's own format, as in Anthropic's SDK.

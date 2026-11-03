@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Build one wheel per platform: the wheel carries the aigw program for the computer it was built on.
 
 With ``AGENTROUTER_NO_BINARY_WHEEL=1`` it builds the fallback instead: a ``py3-none-any`` wheel with no

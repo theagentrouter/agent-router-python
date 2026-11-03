@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Make a release: set the version everywhere, date the changelog, check, commit and tag.
 
     python scripts/release.py 0.1.0a2            # a "Release 0.1.0a2" commit and the tag v0.1.0a2

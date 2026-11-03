@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Download the pinned upstream binary and verify its SHA-256 before packaging it."""
 
 from __future__ import annotations

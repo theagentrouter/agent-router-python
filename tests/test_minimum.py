@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The rest of what agent frameworks call from LiteLLM: names without a provider, validate_environment,
 responses, stream_chunk_builder, callbacks, model_list and the types they import."""
 

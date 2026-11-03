@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A text reply and what it cost. Needs ANTHROPIC_API_KEY (or change the model and key)."""
 
 import theagentrouter

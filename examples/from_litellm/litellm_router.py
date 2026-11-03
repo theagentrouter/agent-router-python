@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """LiteLLM's Router, unchanged apart from the import: model groups with fallbacks and retries.
 
 The Router's groups become routes in the local gateway, which does the retries and the fallback.

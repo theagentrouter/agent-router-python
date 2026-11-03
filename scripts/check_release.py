@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Check the three packages' versions and the release tag before building or publishing.
 
 theagentrouter-core (the SDK, pyproject.toml), theagentrouter (packages/theagentrouter, no code) and

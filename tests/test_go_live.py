@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Who can call the local gateway, which key goes where, the Envoy version, LiteLLM's stream shape
 and LiteLLM's drop_params for Claude."""
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """theagentrouter: LiteLLM's API, with Agent Router underneath.
 
     import theagentrouter

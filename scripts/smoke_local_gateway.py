@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Real providers through the real local gateway. Needs theagentrouter-local-gateway installed
 (`make local-gateway AIGW=/path/to/aigw`) and provider keys; costs a few cents at most.
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """How requests and replies are handled, using the real HTTP fake provider."""
 
 import json

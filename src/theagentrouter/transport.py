@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """HTTP: send the request in the target's format and turn the reply into LiteLLM-shaped objects."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Fail release verification if required integration tests did not run."""
 
 from __future__ import annotations

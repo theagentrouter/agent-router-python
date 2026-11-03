@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The same call to several providers: only the model name changes.
 
 Every call goes through the local gateway, which reads each provider's key from the environment.

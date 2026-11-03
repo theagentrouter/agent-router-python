@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Model details: prices, context windows and capabilities, with LiteLLM's names.
 
 The table is a snapshot of theagentrouter/agent-router-models, refreshed with scripts/sync_models.py.

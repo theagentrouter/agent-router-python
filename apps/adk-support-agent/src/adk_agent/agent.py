@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A Google ADK agent with KB function tools and native MCP ticket tools."""
 
 import sys

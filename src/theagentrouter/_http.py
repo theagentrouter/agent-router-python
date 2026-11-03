@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Reuse HTTP connections, with loopback requests kept out of environment proxies."""
 
 from __future__ import annotations

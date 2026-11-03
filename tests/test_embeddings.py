@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Embeddings: LiteLLM's embedding() and aembedding(), directly, through a gateway and through the real aigw."""
 
 from __future__ import annotations

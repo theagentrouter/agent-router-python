@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Decide where a call goes. The SDK talks only to a gateway; it never calls a provider by itself.
 
 One rule, first match wins:

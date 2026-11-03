@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """LiteLLM's mock_response: answered on this computer, with no gateway and no provider call."""
 
 from __future__ import annotations

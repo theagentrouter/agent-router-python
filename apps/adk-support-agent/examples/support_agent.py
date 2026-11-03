@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Run ADK → model adapter → MCP tickets + local KB with the configured provider."""
 
 import asyncio

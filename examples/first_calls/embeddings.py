@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Embeddings with LiteLLM's arguments: one vector per text, and what the call cost. Needs OPENAI_API_KEY.
 
 OPENAI_API_KEY=... python examples/first_calls/embeddings.py

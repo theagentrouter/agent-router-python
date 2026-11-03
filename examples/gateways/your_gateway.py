@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Send every call through a gateway your team or company runs, instead of the local gateway.
 
 Needs AGENTROUTER_BASE_URL (the gateway's address, which takes the OpenAI format) and

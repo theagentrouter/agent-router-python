@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """LiteLLM's responses() and aresponses(): OpenAI's Responses API, through the gateway.
 
 Agent Router serves ``/v1/responses`` for OpenAI-format backends (OpenAI, Azure OpenAI, AWS), so

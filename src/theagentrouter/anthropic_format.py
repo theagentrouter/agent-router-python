@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Anthropic Messages: convert OpenAI-style requests to Messages, and responses and streams back.
 
 Callers use LiteLLM's OpenAI-shaped messages and tools. Anthropic's Messages API differs in three

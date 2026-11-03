@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The local gateway: Agent Router on this computer, started by the first call.
 
 Every call goes through it; the SDK never calls a provider itself. The first call starts the

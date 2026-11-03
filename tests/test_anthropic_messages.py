@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """litellm.anthropic.messages.create and acreate: Anthropic's own format, through the gateway."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """LiteLLM-compatible module: `from theagentrouter.compat import litellm`, or install_as_litellm().
 
 Covers what agent frameworks use from LiteLLM: completion and acompletion, embedding and aembedding, the response

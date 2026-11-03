@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """The app against real OpenAI and Anthropic, on whichever SDK is installed. Keys from the environment.
 
 Prints PASS or FAIL per check and RESULT: PASS=n FAIL=n; exits non-zero on a failure.

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Stream a reply as it is written. Needs OPENAI_API_KEY."""
 
 import theagentrouter

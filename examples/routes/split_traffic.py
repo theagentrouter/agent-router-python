@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Two models share the traffic of one route: each call goes to one of them at random.
 
 Needs OPENAI_API_KEY and ANTHROPIC_API_KEY.

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Routes on real providers through the real local gateway. Needs OPENAI_API_KEY, ANTHROPIC_API_KEY and
 theagentrouter-local-gateway installed; costs a few cents at most.
 

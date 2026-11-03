@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Agent Router's SDK only: the app's calls through gateways, with the fake provider behind them.
 
 The local gateway tests start the real aigw (theagentrouter-local-gateway) and skip without it.

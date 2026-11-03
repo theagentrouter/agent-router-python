@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Run every example in examples/ against real providers, one at a time; costs a few cents.
 
     OPENAI_API_KEY=... ANTHROPIC_API_KEY=... python3 scripts/smoke_examples.py

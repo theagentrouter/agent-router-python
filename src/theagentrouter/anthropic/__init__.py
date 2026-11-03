@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """LiteLLM's ``litellm.anthropic``: Anthropic's Messages API, as ``anthropic.messages.create`` and ``acreate``."""
 
 from . import messages

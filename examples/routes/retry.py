@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """A route that retries: the local gateway tries the model again on rate limits and server errors.
 
 Needs OPENAI_API_KEY.

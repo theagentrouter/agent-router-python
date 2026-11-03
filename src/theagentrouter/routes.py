@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Routes: a model name of your own, served by the local gateway with fallbacks and retries.
 
     import theagentrouter as ar

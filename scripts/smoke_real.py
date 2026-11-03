@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Call real providers. Runs only for providers whose key is in the environment; costs a few cents at most.
 
     OPENAI_API_KEY=... ANTHROPIC_API_KEY=... python3 scripts/smoke_real.py
