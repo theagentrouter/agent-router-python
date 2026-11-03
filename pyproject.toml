@@ -10,7 +10,7 @@ dynamic = ["readme"]
 requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-authors = [{ name = "Tetrate" }]
+authors = [{ name = "Agent Router Authors" }]
 keywords = ["llm", "ai", "agents", "litellm", "openai", "anthropic", "gateway", "sdk"]
 classifiers = [
     "Development Status :: 3 - Alpha",

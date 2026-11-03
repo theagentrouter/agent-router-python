@@ -6,6 +6,7 @@ Behaviour, for both formats:
 - otherwise: a text reply "echo: <last text>".
 - model names starting with "err-" return errors: err-429, err-401, err-500, err-context, err-budget.
 - the model "slow-stream", streamed, sends 40 chunks 0.2 seconds apart.
+- the model "refuses-max-tokens" answers max_tokens with OpenAI's 400 for its newer models.
 Every request is recorded in FakeProvider.requests as (path, headers, body).
 """
 
@@ -83,6 +84,11 @@ class FakeProvider:
                     return
                 if bare == "malformed-shape":
                     return self._json(200, {"choices": [42]})
+                if bare == "refuses-max-tokens" and "max_tokens" in body:
+                    message = "Unsupported parameter: 'max_tokens' is not supported with this model. "
+                    message += "Use 'max_completion_tokens' instead."
+                    error = {"message": message, "type": "invalid_request_error", "param": "max_tokens"}
+                    return self._json(400, {"error": {**error, "code": "unsupported_parameter"}})
                 if bare == "cached-cost":
                     return self._json(
                         200,

@@ -90,7 +90,8 @@ def test_estimate_setting_sends_nothing(gateway, monkeypatch):
     assert gateway.requests == []
 
 
-def test_providers_without_a_count_are_estimated_with_no_request(server):
+def test_providers_without_a_count_are_estimated_with_no_request(server, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)  # a developer's own key would start the gateway
     tokens._warned.add("tiktoken")
     # No gateway set and not OpenAI or Anthropic: the local gateway is not even started.
     assert ar.token_counter(model="groq/llama-3.1-8b-instant", text="abcdefgh") == 2

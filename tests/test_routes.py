@@ -97,13 +97,19 @@ def _config(routes_: dict) -> str:
     return local_gateway.config_yaml(["anthropic", "openai"], dict(os.environ), port=1975, models=[], routes=routes_)
 
 
+def _route_policies(config: str) -> list[str]:
+    """The traffic policies of routes, without the gateway's own for failed connections."""
+    docs = config.split("\n---\n")
+    return [d for d in docs if "kind: BackendTrafficPolicy" in d and "name: retry-failed-connections" not in d]
+
+
 def test_a_route_is_one_gateway_route_with_a_priority_per_tier(env, installed):
     r = ar.route("chat", primary="openai/gpt-4o", fallbacks=["openai/gpt-4o-mini"], retry=ar.Retry(attempts=2))
     config = _config({"chat": r})
     assert config.count('value: "chat"') == 1
     assert 'modelNameOverride: "gpt-4o"\n          priority: 0' in config
     assert 'modelNameOverride: "gpt-4o-mini"\n          priority: 1' in config
-    assert config.count("kind: BackendTrafficPolicy") == 1
+    assert len(_route_policies(config)) == 1
     assert "numAttemptsPerPriority: 3" in config  # the first try and 2 retries in each tier
     assert "numRetries: 5" in config  # 3 tries in each of 2 tiers, minus the first
     assert "        - 503" in config
@@ -117,7 +123,7 @@ def test_models_in_one_tier_share_a_priority(env, installed):
 
 def test_route_without_retries_has_no_retry_policy(env, installed):
     r = ar.route("solo", primary="openai/gpt-4o", retry=ar.Retry(attempts=0))
-    assert "BackendTrafficPolicy" not in _config({"solo": r})
+    assert _route_policies(_config({"solo": r})) == []
 
 
 def test_fallback_without_retries_still_moves_to_the_next_tier(env, installed):
@@ -129,8 +135,9 @@ def test_fallback_without_retries_still_moves_to_the_next_tier(env, installed):
 def test_a_limit_goes_in_the_same_policy_as_the_retry(env, installed):
     r = ar.route("chat", primary="openai/gpt-4o", fallbacks=["openai/gpt-4o-mini"], limit=ar.Limit(60, per="minute"))
     config = _config({"chat": r})
-    assert config.count("kind: BackendTrafficPolicy") == 1  # Envoy Gateway takes one per route
-    policy = config.split("kind: BackendTrafficPolicy")[1]
+    policies = _route_policies(config)
+    assert len(policies) == 1  # Envoy Gateway takes one per route
+    policy = policies[0]
     assert "type: Local" in policy and "requests: 60" in policy and "unit: Minute" in policy
     assert "numAttemptsPerPriority:" in policy
 
@@ -138,7 +145,10 @@ def test_a_limit_goes_in_the_same_policy_as_the_retry(env, installed):
 def test_a_limit_alone_still_gets_a_policy(env, installed):
     r = ar.route("solo", primary="openai/gpt-4o", retry=ar.Retry(attempts=0), limit=ar.Limit(5, per="second"))
     config = _config({"solo": r})
-    assert "unit: Second" in config and "retry:" not in config.split("kind: BackendTrafficPolicy")[1]
+    policy = _route_policies(config)[0]
+    assert "unit: Second" in policy and "numAttemptsPerPriority" not in policy
+    # A route's own policy replaces the gateway's, so it keeps the retry of a failed connection.
+    assert "connect-failure" in policy and "retriable-status-codes" not in policy
 
 
 def test_limit_is_stored_and_changes_the_fingerprint(env, installed):
@@ -220,6 +230,65 @@ def _serve_route(env, fake, r):
     state = json.loads((env / "local-gateway" / "state.json").read_text())
     state.update(routes=[r.name], routes_fingerprint=routes.fingerprint({r.name: r}))
     (env / "local-gateway" / "state.json").write_text(json.dumps(state))
+
+
+@pytest.mark.parametrize(
+    ("primary", "fallback"),
+    [
+        ("anthropic/claude-haiku-5-5", "openai/gpt-5.4-mini"),
+        ("openai/gpt-5.4-mini", "anthropic/claude-haiku-5-5"),
+        ("anthropic/claude-haiku-5-5", "azure/acme-deployment"),
+    ],
+)
+def test_a_route_with_an_openai_model_sends_max_completion_tokens(env, installed, fake, primary, fallback):
+    # Any model in the route may get the request, and OpenAI's newer models refuse max_tokens.
+    _serve_route(env, fake, ar.route("chat", primary=primary, fallbacks=[fallback]))
+    ar.completion(model="chat", messages=HELLO, max_tokens=50)
+    body = fake.requests[-1][2]
+    assert body["max_completion_tokens"] == 50 and "max_tokens" not in body
+
+
+@pytest.mark.parametrize(
+    ("primary", "fallback"),
+    [
+        ("anthropic/claude-haiku-5-5", "groq/acme-llama"),
+        ("mistral/acme-large", "openai/gpt-5.4-mini"),
+        ("openai/gpt-5.4-mini", "mistral/acme-large"),
+    ],
+)
+def test_a_route_with_another_provider_sends_what_the_caller_wrote(env, installed, fake, primary, fallback):
+    # Not every provider takes max_completion_tokens. If an OpenAI model refuses max_tokens, it says so.
+    _serve_route(env, fake, ar.route("chat", primary=primary, fallbacks=[fallback]))
+    ar.completion(model="chat", messages=HELLO, max_tokens=50)
+    assert fake.requests[-1][2]["max_tokens"] == 50
+
+
+def test_a_route_removes_what_claude_on_bedrock_cannot_take(env, installed, monkeypatch):
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "acme-id")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "acme-secret")
+    newer = ar.route("newer", primary="openai/gpt-5.4", fallbacks=["bedrock/us.anthropic.claude-sonnet-5-5"])
+    older = ar.route("older", primary="openai/gpt-5.4", fallbacks=["bedrock/anthropic.claude-sonnet-4-5"])
+    other = ar.route("other", primary="openai/gpt-5.4", fallbacks=["bedrock/amazon.nova-pro-v1:0"])
+    providers = ["bedrock", "openai"]
+    config = local_gateway.config_yaml(providers, dict(os.environ), port=1975, models=[], routes={"r": newer})
+    assert (
+        "remove: [inferenceConfig.temperature, inferenceConfig.topP, additionalModelRequestFields.reasoning_config]"
+        in config
+    )
+    config = local_gateway.config_yaml(providers, dict(os.environ), port=1975, models=[], routes={"r": older})
+    assert "remove: [additionalModelRequestFields.reasoning_config]" in config
+    config = local_gateway.config_yaml(providers, dict(os.environ), port=1975, models=[], routes={"r": other})
+    assert "bodyMutation" not in config
+
+
+def test_a_route_removes_what_a_claude_model_refuses_at_that_model(env, installed):
+    config = _config({"chat": ar.route("chat", primary="openai/gpt-5.4", fallbacks=["anthropic/claude-sonnet-5-5"])})
+    assert config.count("bodyMutation") == 1
+    openai, claude = config.split("name: anthropic-openai\n          namespace: default\n          modelNameOverride")
+    assert "bodyMutation" not in openai and "remove: [temperature, top_p]" in claude
+    older = ar.route("older", primary="openai/gpt-5.4", fallbacks=["anthropic/claude-sonnet-4-6"])
+    assert "bodyMutation" not in _config({"older": older})
 
 
 def test_route_name_goes_through_the_local_gateway(env, installed, fake, monkeypatch):
@@ -403,6 +472,34 @@ def test_real_gateway_falls_back_to_the_next_model(real_gateway, second_fake):
         ("acme-small", "Bearer acme2-secret")
     ]
     assert resp._hidden_params["served_by"] == "acme2/acme-small"
+
+
+@needs_aigw
+@needs_xds_port
+def test_real_gateway_removes_what_a_fallback_refuses(real_gateway, monkeypatch):
+    fake = real_gateway
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "acme-anthropic")
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", fake.url)
+    ar.route("chat", primary="acme/err-500", fallbacks=["anthropic/claude-sonnet-5-5"], retry=ar.Retry(attempts=0))
+
+    resp = ar.completion(model="chat", messages=HELLO, temperature=0.2, top_p=0.9)
+    assert resp.choices[0].message.content == "echo: refunds yesterday"
+    first, second = [body for _, _, body in fake.requests][-2:]
+    assert first["model"] == "err-500" and first["temperature"] == 0.2 and first["top_p"] == 0.9
+    assert second["model"] == "claude-sonnet-5-5" and "temperature" not in second and "top_p" not in second
+
+
+@needs_aigw
+@needs_xds_port
+def test_real_gateway_passes_on_what_a_model_says_about_max_tokens(real_gateway):
+    fake = real_gateway
+    ar.route("chat", primary="acme/refuses-max-tokens", retry=ar.Retry(attempts=0))
+    resp = ar.completion(model="chat", messages=HELLO, max_tokens=50)
+    assert resp.choices[0].message.content == "echo: refunds yesterday"
+    assert [(b.get("max_tokens"), b.get("max_completion_tokens")) for _, _, b in fake.requests] == [
+        (50, None),
+        (None, 50),
+    ]
 
 
 @needs_aigw

@@ -2,6 +2,37 @@
 
 All notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Changed
+
+- The SDK is part of the Agent Router project. It follows the LF Projects Code of Conduct, security reports can also go to Agent Router's security team, and the packages' author is Agent Router Authors.
+
+### Fixed
+
+- A route from Claude to an OpenAI or Azure model no longer fails on `max_tokens` at the fallback. A route of those models now sends `max_completion_tokens`, which OpenAI's newer models require and Anthropic's OpenAI-compatible endpoint also takes.
+- `max_tokens` works when an OpenAI model refuses it behind a name the SDK does not know, such as a route on a gateway you set. The SDK makes the call once more with `max_completion_tokens`, and the limit holds.
+- A route whose fallback is a newer Claude model no longer fails on `temperature` or `top_p`: the gateway removes them before the request reaches that model. A gateway already running keeps its old configuration until `local_gateway.stop()`.
+- Claude's thinking follows LiteLLM's rules for each model. A token budget stays as written on Opus 4.6 and Sonnet 4.6, and becomes an effort level from Opus 4.7 on. Adaptive thinking becomes a token budget before Opus 4.6 and Sonnet 4.6. `thinking={"type": "disabled"}` is left out on the models that always think, which refuse it.
+- `reasoning_effort` on Claude 4.6 and later asks for summarized thinking, so `reasoning_content` is no longer empty. It also takes `{"effort": "low"}`, and a dated Claude name not on the model list follows the rules for its name.
+- Without `max_tokens`, Claude gets the model's own limit, as in LiteLLM, instead of 4096, so long answers are no longer cut off. With a token budget, it gets the budget plus 4096. `max_completion_tokens` wins over `max_tokens`.
+- What a Claude name the SDK does not know refuses is left for Anthropic to answer, as in LiteLLM, instead of being refused before the call.
+- A model name without a rule works with a running local gateway, which restarts with a rule for it, as LiteLLM sends any name to the provider. Before, it raised `NotFoundError`, so a second Bedrock or Azure name failed. A mistyped name now restarts the gateway too, which interrupts other programs' requests.
+- A gateway route named like `claude-first` goes in the OpenAI format: only a name with a version, as in LiteLLM, counts as Claude.
+- Claude on Bedrock follows the same rules. `thinking` no longer goes missing, signed thinking goes back with a tool result, `reasoning_effort` no longer reaches Claude as an unknown field, and what a newer model refuses raises `UnsupportedParamsError` unless `drop_params=True`. On Bedrock, `tool_choice="none"` no longer forces a tool named "none", and what a model does not take, such as `seed`, raises in the same way. `bedrock/converse/...` and `bedrock/invoke/...` send Bedrock the model's own name. The SDK warns once for what the gateway cannot send to Bedrock: an effort level, `top_k`, `parallel_tool_calls=False` and `response_format`.
+- `anthropic.messages` follows LiteLLM's rules for what a model refuses, instead of sending every setting unchanged. It takes `reasoning_effort`, no longer loses `cache_control`, `output_config` and the other Messages options LiteLLM passes, and adds the `anthropic-beta` header each of them needs.
+- `response_format` takes a pydantic class, as in LiteLLM, on every provider. For Claude, a JSON schema is changed as in LiteLLM, so a schema without `additionalProperties` or with `maximum` no longer fails.
+- More of LiteLLM's Claude behaviour on `completion`: `max_tokens=0` stays 0, an email address or phone number in `user` is left out, Anthropic's own tool shapes and hosted tools go as written, `tool_choice={"type": "none"}` is kept, and `thinking=True` is the medium setting.
+- `additional_drop_params` drops the options it names, and `drop_params` on the module holds whatever a call says, as in LiteLLM.
+- A route warns when `thinking` or `top_k` cannot be sent, instead of losing them silently, and a framework's private flag such as `_skip_mcp_handler` no longer warns.
+- `drop_params` works for what newer Claude models refuse. From Opus 4.7 on, `temperature` other than 1, `top_p` and `top_k` are dropped. On Sonnet 5.5, Opus 5.5 and Fable 5.1, a forced tool call becomes `auto`, with a warning. Without `drop_params`, these now raise `UnsupportedParamsError` before the call, as in LiteLLM, instead of `BadRequestError` from the provider. A gateway you set still gets them, because its model names are its own.
+- `reasoning_effort` and `thinking` with a budget work on Opus 4.5, which refuses adaptive thinking.
+- OpenAI's "Input tokens exceed the configured limit" raises `ContextWindowExceededError`, as in LiteLLM, instead of `BadRequestError`.
+- A web page can no longer reach the local gateway through DNS rebinding: its `SecurityPolicy` also checks the `Host` header, so a browser sending the page's own name gets 403.
+- A provider address that does not answer from your network no longer fails the call with 503. Bedrock's hostname has many addresses; the gateway now tries the next one, as an HTTP client does.
+- No `ResourceWarning: subprocess N is still running` when a program starts the local gateway.
+- Docs: the Messages API example and the thinking advice for frameworks used a form that Claude 5 models refuse; the Responses API example read the wrong output item on models that reason; running an exported config says where `aigw` comes from.
+
 ## [0.1.0a8] - 2026-11-02
 
 ### Changed

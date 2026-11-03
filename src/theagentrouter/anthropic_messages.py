@@ -1,8 +1,9 @@
 """LiteLLM's Anthropic Messages API: ``litellm.anthropic.messages.create`` and ``acreate``, through the gateway.
 
-The request and the reply are Anthropic's own format, unchanged, so every Messages feature works: prompt
-caching, thinking, tools, citations and beta headers. The call goes where a completion for the same Claude
-model goes, to the gateway's ``/anthropic/v1/messages``. Agent Router serves Messages for Claude, so other
+The request and the reply are Anthropic's own format, so every Messages feature works: prompt caching,
+thinking, tools, citations and beta headers. As in LiteLLM, the thinking settings and sampling options a
+model refuses are changed first. The call goes where a completion for the same Claude model goes, to the
+gateway's ``/anthropic/v1/messages``. Agent Router serves Messages for Claude, so other
 providers are refused; use completion() for them. Routes are refused too: the local gateway answers a route
 in the OpenAI format.
 """
@@ -18,7 +19,7 @@ import httpx
 
 from . import _http, anthropic_format, exceptions, local_gateway, models, routing
 from .responses import _wrap_value
-from .transport import _asend, _raise_for, _retries, _retry_delay, _retryable, _send, _timeout, _wrap
+from .transport import _asend, _raise_for, _retries, _retry_delay, _retryable, _send, _timeout, _wrap, drop_params
 
 # Messages arguments sent to the gateway as they are; the rest of **kwargs controls the call.
 _PASSED = (
@@ -35,6 +36,13 @@ _PASSED = (
     "service_tier",
     "context_management",
     "mcp_servers",
+    "cache_control",
+    "output_config",
+    "output_format",
+    "compaction",
+    "inference_geo",
+    "speed",
+    "safeguards",
 )
 
 
@@ -86,6 +94,9 @@ def _prepare(model: str, params: dict[str, Any]) -> tuple[routing.Target, dict[s
 
 def _body(target: routing.Target, max_tokens: int, messages: list[dict], stream: bool | None, params: dict) -> dict:
     body: dict[str, Any] = {"model": target.model, "max_tokens": max_tokens, "messages": messages}
+    params = anthropic_format.messages_params(
+        target.model, {**params, "drop_params": drop_params(params)}, max_tokens, target.route == "gateway"
+    )
     body.update({k: params[k] for k in _PASSED if params.get(k) is not None})
     if stream:
         body["stream"] = True
@@ -253,6 +264,7 @@ def create(
     params = {**kwargs, **_named(locals())}
     target, headers, url = _prepare(model, params)
     body = _body(target, max_tokens, messages, stream, params)
+    headers = anthropic_format.with_betas(headers, body)
     if stream:
         return _stream(target, headers, url, body, model, params)
     r = _send(target, body, headers, params, model, url)
@@ -281,6 +293,7 @@ async def acreate(
     # In a worker thread: preparing can start the local gateway, which must not block the event loop.
     target, headers, url = await asyncio.to_thread(_prepare, model, params)
     body = _body(target, max_tokens, messages, stream, params)
+    headers = anthropic_format.with_betas(headers, body)
     if stream:
         return await _astream(target, headers, url, body, model, params)
     r = await _asend(target, body, headers, params, model, url)

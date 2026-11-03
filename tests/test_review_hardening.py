@@ -1,4 +1,4 @@
-"""Regressions for the original go-live review, using the real HTTP fake provider."""
+"""How requests and replies are handled, using the real HTTP fake provider."""
 
 import json
 
@@ -231,3 +231,16 @@ def test_a_relative_or_tilde_home_becomes_absolute(monkeypatch, tmp_path):
     assert routing.home() == tmp_path.absolute() / "acme-home"
     monkeypatch.setenv("AGENTROUTER_HOME", "~/acme-home")
     assert routing.home() == Path.home() / "acme-home"
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Input tokens exceed the configured limit of 272000 tokens. Your messages resulted in 1500007 tokens.",
+        "prompt is too long: 2100057 tokens > 1000000 maximum",
+        "This model's maximum context length is 8192 tokens",
+    ],
+)
+def test_a_prompt_that_is_too_long_is_a_context_window_error(message):
+    error = exceptions.from_http(400, json.dumps({"error": {"message": message}}), "m", "openai")
+    assert isinstance(error, exceptions.ContextWindowExceededError)

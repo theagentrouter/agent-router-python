@@ -7,6 +7,7 @@ Keys are "provider/model"; lookups also accept a bare model name with custom_llm
 from __future__ import annotations
 
 import json
+import re
 import warnings
 from importlib import resources
 from typing import Any
@@ -192,8 +193,10 @@ def _key(model: str, custom_llm_provider: str | None = None) -> str | None:
 # too, so code moved from LiteLLM already has the prefix.
 _BARE = (
     ("openai", ("gpt-", "o1", "o3", "o4", "chatgpt-", "text-embedding-", "dall-e", "whisper", "tts-")),
-    ("anthropic", ("claude-",)),
+    ("anthropic", ()),
 )
+# A Claude name has a version: claude-sonnet-5, claude-3-7-sonnet-20250219. As in LiteLLM, claude-first is not one.
+_CLAUDE_NAME = re.compile(r"claude-(?:[a-z]+-)?\d")
 
 
 def provider_of(name: str) -> str | None:
@@ -212,7 +215,7 @@ def provider_of(name: str) -> str | None:
     for provider, prefixes in _BARE:
         if f"{provider}/{name}" in model_cost or name.startswith(prefixes):
             return provider
-    return None
+    return "anthropic" if _CLAUDE_NAME.match(name) else None
 
 
 def get_model_info(model: str, custom_llm_provider: str | None = None) -> dict[str, Any]:

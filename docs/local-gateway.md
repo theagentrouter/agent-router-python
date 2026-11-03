@@ -25,7 +25,7 @@ The macOS arm64 wheel is about 80 MB compressed (the program itself is 281 MB). 
 1. `api_base` on the call: that endpoint, in the provider's own format (LiteLLM's argument).
 2. A gateway set with `AGENTROUTER_BASE_URL` (or `config.json`).
 3. A route name: the local gateway's route for it. The running gateway is used only if it has this computer's current routes (`routes_fingerprint` in `state.json`); otherwise it restarts. With `AGENTROUTER_AUTOSTART=0`, a running gateway that already has the route is still used.
-4. Anything else: the running local gateway, if it has a rule for this name and the name was not a route when it started (`local_gateway.serves`); otherwise the gateway is started or restarted with this model, if installed and `AGENTROUTER_AUTOSTART` is not `0`. Otherwise an error says to set `AGENTROUTER_BASE_URL`. An `api_key=` here cannot reach the provider (the gateway holds the keys), so it warns once.
+4. Anything else: the running local gateway, if it has a rule for this name and the name was not a route when it started (`local_gateway.serves`). Otherwise, if the package is installed and `AGENTROUTER_AUTOSTART` is not `0`, the gateway is started with this model, or restarted with a rule for it, as LiteLLM sends any name to the provider. With no package or no autostart, an error says to set `AGENTROUTER_BASE_URL`. An `api_key=` here cannot reach the provider (the gateway holds the keys), so it warns once.
 
 ## Starting and stopping
 
@@ -62,11 +62,13 @@ Google Vertex AI is not set up yet. A call to it says so.
 
 The local gateway runs the `aigw` release pinned in `local-gateway/aigw-release.json`, unchanged. Everything below is done in the config the SDK writes, with what that release offers.
 
-**Callers on other computers are refused.** `aigw run` binds Envoy's listener to every address and has no setting to change it. The `SecurityPolicy` in the local config allows only `127.0.0.1/32` and `::1/128` and denies everything else with 403. Envoy Gateway matches these addresses against the connection's source address, not `X-Forwarded-For`, so a caller cannot claim to be local. A refused request never reaches a provider, so it never uses a provider key. The listener and the internal ports stay open on the network (see Known limits).
+**Callers on other computers are refused.** `aigw run` binds Envoy's listener to every address and has no setting to change it. The `SecurityPolicy` in the local config allows only `127.0.0.1/32` and `::1/128` and denies everything else with 403. Envoy Gateway matches these addresses against the connection's source address, not `X-Forwarded-For`, so a caller cannot claim to be local. It also allows only a `Host` of this computer's own address, so a web page cannot reach the gateway through DNS rebinding. A refused request never reaches a provider, so it never uses a provider key. The listener and the internal ports stay open on the network (see Known limits).
 
 **An exported server checks a client key.** `export_config()` adds a `SecurityPolicy` whose authorization rules allow a request only when `x-api-key` equals `${AGENTROUTER_API_KEY}`, or `Authorization` equals `Bearer ${AGENTROUTER_API_KEY}`. Everything else gets 403. `aigw` fills in the variable across the whole file when it starts. When the variable is missing or empty, the expected value becomes a line break (`${AGENTROUTER_API_KEY:-\n}`), which no request header can carry, so the server refuses every request. Each `AIServiceBackend` removes `Authorization` and `x-api-key` before the provider's own key is added, so a client key never reaches a provider. The config does not use Envoy Gateway's `apiKeyAuth`: that needs its keys in a `Secret`, and `aigw run` does not pass the `Secret`s in its config file on to Envoy Gateway.
 
-**Configuration changes restart the gateway.** `aigw run` reads its config once, at start. The SDK restarts the shared gateway only for a real change: a new route, a registered model, or a provider whose key the caller has. An unknown model name raises `NotFoundError`, a gateway started by another SDK version raises instead of being replaced, and a caller without the keys of the providers already running raises. In each of these cases the gateway keeps running. A rotated provider key is detected and refused until the gateway is stopped with `local_gateway.stop()`.
+**A failed connection is tried again.** A provider's name can resolve to an address that does not answer from your network. A `BackendTrafficPolicy` on the gateway retries a connection that failed, up to twice, because no request was sent on it. Routes have their own retry settings.
+
+**Configuration changes restart the gateway.** `aigw run` reads its config once, at start. The SDK restarts the shared gateway for a new route, a model name it has no rule for, or a provider whose key the caller has. A gateway started by another SDK version raises instead of being replaced, and a caller without the keys of the providers already running raises. In these two cases the gateway keeps running. A rotated provider key is detected and refused until the gateway is stopped with `local_gateway.stop()`.
 
 **No MCP session seed is set.** `aigw run` always starts an MCP proxy and logs a warning that its session seed is the public default. `aigw run` has no setting for the seed. The SDK configures no MCP servers, so nothing sits behind the proxy.
 
@@ -76,7 +78,7 @@ The SDK sends the model name as the caller wrote it (`bedrock/anthropic.claude-s
 
 `aigw` routes on the model name as it is sent and cannot strip a `bedrock/` prefix. So the config has **one route rule per model**. Each rule matches the full name in the `x-ai-eg-model` header that `aigw` sets from the request, and for OpenAI and Anthropic the name without a provider too (`gpt-4o-mini`, `claude-sonnet-4-5`, as LiteLLM and Agent Router Enterprise write them). It passes the provider its own name with `modelNameOverride`.
 
-- The rules cover the bundled model list for the providers whose keys are set. A new model added to a running gateway must be explicitly registered. Known configuration changes restart a same-version gateway, which interrupts other programs' requests; a typo does not.
+- The rules cover the bundled model list for the providers whose keys are set. A model name without a rule restarts a same-version gateway with one, which interrupts other programs' requests, and a mistyped name does that too.
 - `export_config()` writes the same config for a server, on a fixed port. A server cannot add rules on demand, so it gets the bundled list plus the models named in `models=`.
 - Gateway API allows at most 16 rules in one route, and `aigw` adds one rule of its own to each `AIGatewayRoute`. So the rules are spread over several `AIGatewayRoute`s of at most 15 (`RULES_PER_ROUTE`). A route with more never starts: `aigw` logs `HTTPRoute ... is invalid: spec.rules: Too many` only with `--debug`, and waits.
 
@@ -90,7 +92,9 @@ A route (`theagentrouter.route()`, or LiteLLM's `Router`) becomes **one `AIGatew
 
 **Envoy looks up hostnames after it starts listening.** Until it has, a fallback has nowhere to go, and requests sent right after the start get 503. So after a start the SDK waits, up to 15 seconds, until Envoy's `/clusters` lists a host for every backend of every route.
 
-A route of Anthropic and other providers reaches Anthropic through its OpenAI-compatible endpoint (`https://api.anthropic.com/v1`, backend `anthropic-openai`), because routes go through the OpenAI format and `aigw` does not translate it to Anthropic Messages.
+A route reaches Anthropic through its OpenAI-compatible endpoint (`https://api.anthropic.com/v1`, backend `anthropic-openai`), because routes go through the OpenAI format and `aigw` does not translate it to Anthropic Messages.
+
+**One request, different models.** Any model in a route may get the request, so it has to suit them all. In a route of OpenAI or Azure with Anthropic, Gemini, Groq or Bedrock models, the SDK sends `max_completion_tokens`, because OpenAI's newer models refuse `max_tokens` and the others take it too. Any other route sends what the caller wrote, and if an OpenAI model refuses `max_tokens`, the SDK makes the call once more with `max_completion_tokens`. The backend of a newer Claude model has a `bodyMutation` that removes `temperature` and `top_p`, so a fallback to it does not fail on a setting the first model took. The mutation runs on the request as the backend gets it, so for Claude on Bedrock it names Converse's fields, and also removes the effort level the gateway would send there.
 
 **Request limits** (`Limit`) go in the same `BackendTrafficPolicy` as the retry, because Envoy Gateway takes one per route: `rateLimit.type: Local`, one rule with `requests` and `unit`. Envoy's local rate limit filter answers 429 before the router, so a limited request is never retried. Two limits on what the local gateway can do:
 
@@ -111,7 +115,7 @@ A prefix-strip option in Agent Router itself would replace the per-model rules w
 | Real `aigw` against two fake providers: fallback with each provider's own model name and key, retries then giving up, no retry on 401, `Router` with a fallback, a request limit answering 429, embeddings | `tests/test_routes.py`, `tests/test_embeddings.py`, skipped unless the package is installed. CI runs them on every platform with a program, and none may skip |
 | Real OpenAI and Anthropic through the real gateway, and a second program | `scripts/smoke_local_gateway.py` |
 | Real OpenAI and Anthropic routes: primary answers, a failing primary falls back to Anthropic, `Router`, a shared tier | `scripts/smoke_routes.py` |
-| All 21 examples on real providers through the local gateway | `examples/` |
+| Every example on real providers through the local gateway | `scripts/smoke_examples.py`, `examples/` |
 
 Run the real-provider scripts one at a time and stop the gateway between them: see `DEVELOPMENT.md`.
 
@@ -122,7 +126,7 @@ These are the things the local gateway cannot do today. This is the full list; o
 1. **The gateway's ports listen on every address.** Upstream Envoy Gateway binds Envoy's listeners and its own xDS (18000), wasm cache (18002) and health (8081) servers to every address, and upstream `aigw run` does the same for the MCP proxy (9856), the external processor's admin port and Envoy Gateway's metrics (19001). The `SecurityPolicy` refuses any caller whose connection does not come from `127.0.0.1` or `::1`, so the network cannot reach the provider keys; the other ports stay open. Moving them to loopback needs changes in Agent Router and Envoy Gateway.
 2. **Fixed internal ports.** `aigw run` binds fixed ports inside itself (extension server 1061, Envoy Gateway xDS 18000, health 8081, admin 19000 and others), so only one Agent Router gateway runs per computer. The SDK chooses its own listener and admin ports at each start and names the program holding 1061 or 18000. Moving the internal ones needs changes in Agent Router and Envoy Gateway.
 3. **Windows and Intel macOS have no program.** Upstream provides macOS arm64 and Linux amd64/arm64 binaries only; those computers get the fallback wheel. The start lock and the route lock are POSIX only.
-4. **Configuration changes restart the gateway.** `aigw` reads its config once, so a new route, registered model or provider stops the shared gateway and starts it again, which interrupts other programs' requests and streams.
+4. **Configuration changes restart the gateway.** `aigw` reads its config once, so a new route, model name or provider stops the shared gateway and starts it again, which interrupts other programs' requests and streams.
 5. **A rotated provider key needs a stop.** The SDK detects that a caller's key differs from the one the gateway started with and refuses the call. Call `local_gateway.stop()` when other programs have finished; the next call starts the gateway with the new key. `aigw run` cannot load a new key without a restart.
 6. **Backends at an IP address cannot fall back** correctly until Agent Router labels each backend on its own (see "Routes").
 7. **Request limits count requests, not tokens.** Token limits need a Redis-backed rate-limit service, which `aigw run` does not have (see "Routes").

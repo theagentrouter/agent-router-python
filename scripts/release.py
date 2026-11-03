@@ -84,7 +84,7 @@ def main() -> None:
         raise SystemExit("A check failed; the files are back as they were") from None
 
     _run("git", "add", *FILES, "CHANGELOG.md")
-    _run("git", "commit", "-q", *(["--amend", "--no-edit"] if args.amend else ["-m", f"Release {version}"]))
+    _run("git", "commit", "-q", "-s", *(["--amend", "--no-edit"] if args.amend else ["-m", f"Release {version}"]))
     _run("git", "tag", "-a", tag, "-m", version)
     force = "--force-with-lease " if args.amend else ""
     print(f"\nTagged {tag} on {_run('git', 'rev-parse', '--short', 'HEAD', capture=True)}. To publish:\n")

@@ -12,7 +12,7 @@ def test_ask(base, model):
 
 @pytest.mark.parametrize("model", MODELS)
 def test_stream(base, model):
-    # The plain loop from LiteLLM's README (review H1: it crashed on the last chunk).
+    # The plain loop from LiteLLM's README: it must not crash on the last chunk.
     assert "".join(app.stream(model, "refunds yesterday", **base)).strip() == "echo: refunds yesterday"
 
 

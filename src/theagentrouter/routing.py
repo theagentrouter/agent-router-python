@@ -99,7 +99,7 @@ def settings() -> dict[str, str]:
 
 @dataclass
 class Target:
-    route: str  # "direct", "gateway" or "local gateway"
+    route: str  # "api_base", "gateway" or "local gateway"
     format: str  # OPENAI or ANTHROPIC
     base_url: str = field(repr=False)
     api_key: str | None = field(repr=False)

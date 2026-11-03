@@ -91,6 +91,19 @@ def test_release_sets_the_version_everywhere(tmp_path, monkeypatch):
         script.set_version("9.8.8", "2026-10-14")
 
 
+@pytest.mark.parametrize("extra", [[], ["--amend"]])
+def test_the_release_commit_is_signed_off(monkeypatch, extra):
+    # CONTRIBUTING.md asks it of every commit.
+    script = _script("release")
+    calls = []
+    monkeypatch.setattr(script, "_run", lambda *cmd, **kwargs: calls.append(cmd) or "")
+    monkeypatch.setattr(script, "set_version", lambda *args: None)
+    monkeypatch.setattr(sys, "argv", ["release", "9.8.7", *extra])
+    script.main()
+    commit = next(cmd for cmd in calls if cmd[:2] == ("git", "commit"))
+    assert "-s" in commit
+
+
 def test_binary_download_rejects_bad_checksum_and_keeps_existing_binary(tmp_path, monkeypatch):
     script = _script("fetch_aigw")
     script.ROOT = tmp_path

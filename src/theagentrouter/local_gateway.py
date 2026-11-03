@@ -5,9 +5,8 @@ and Linux; it holds the ``aigw`` program. Every call goes through a gateway, and
 is the one. Nothing else is run by hand:
 
 1. The first call starts ``aigw run`` in the background.
-2. The SDK writes the gateway's config from the provider keys in the environment. The config
-   holds ``${OPENAI_API_KEY}``-style references, never key values; ``aigw`` fills them in from
-   the environment it is started with.
+2. The SDK writes the gateway's config from the provider keys in the environment. The config holds
+   no key values: each key is in a private file that ``aigw`` reads when it starts.
 3. Later calls, from any program on the computer, find the running gateway through
    ``AGENTROUTER_HOME/local-gateway/state.json`` and use it.
 
@@ -16,8 +15,8 @@ a provider such as ``gpt-4o-mini``), as it does to any gateway. ``aigw`` routes 
 sent and cannot strip a ``provider/`` prefix, so the config has one route rule per model: it matches
 the full name, and for OpenAI and Anthropic the name without a provider too, and passes the provider
 its own name with ``modelNameOverride``. The rules cover the bundled model list for the providers whose keys are
-set, plus every other model the moment it is first asked for (which restarts the gateway, since
-``aigw`` reads its config once).
+set, the model that starts the gateway, and models added with ``register_model``. Adding one to a running
+gateway restarts it, since ``aigw`` reads its config once.
 """
 
 from __future__ import annotations
@@ -99,6 +98,15 @@ PROVIDERS: dict[str, dict] = {
     # LiteLLM's settings. The model name after azure/ is the deployment, which aigw puts in the path.
     "azure": {"schema": "AzureOpenAI", "keys": ["AZURE_API_KEY", "AZURE_API_BASE"], "base_variable": "AZURE_API_BASE"},
 }
+
+
+# A provider's name can resolve to an address that does not answer from this network. No request was
+# sent on a connection that failed, so the gateway tries the next address, as an HTTP client does.
+_RETRY_FAILED_CONNECTIONS = """  retry:
+    numRetries: 2
+    retryOn:
+      triggers:
+        - connect-failure"""
 
 
 def installed() -> bool:
@@ -194,9 +202,17 @@ def _is_ip(host: str) -> bool:
 def _route_backend(model: str) -> tuple[str, str]:
     """(backend name, model name the provider gets) for one model in a route, which speaks the OpenAI format."""
     provider, own = model.split("/", 1)
+    own = _provider_name(provider, own)
     if PROVIDERS[provider].get("format") == "anthropic":
         return f"{provider}-openai", own
     return provider, own
+
+
+def _provider_name(provider: str, own: str) -> str:
+    """The name the provider gets. As in LiteLLM, bedrock/converse/... and bedrock/invoke/... name a Bedrock API."""
+    if provider == "bedrock":
+        return own.removeprefix("converse/").removeprefix("invoke/")
+    return own
 
 
 def _names(model: str) -> list[str]:
@@ -272,10 +288,23 @@ spec:
       name: theagentrouter
   connection:
     bufferLimit: 50Mi""",
+        f"""apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: retry-failed-connections
+  namespace: default
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: theagentrouter
+{_RETRY_FAILED_CONNECTIONS}""",
     ]
     if local:
+        # The Host check stops a web page from reaching the gateway through DNS rebinding: the browser
+        # connects from this computer, but sends the page's own name as the Host.
         docs.append(
-            """apiVersion: gateway.envoyproxy.io/v1alpha1
+            f"""apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: SecurityPolicy
 metadata:
   name: this-computer-only
@@ -293,7 +322,13 @@ spec:
         principal:
           clientCIDRs:
             - 127.0.0.1/32
-            - ::1/128"""
+            - ::1/128
+          headers:
+            - name: host
+              values:
+                - "127.0.0.1:{port}"
+                - "localhost:{port}"
+                - "[::1]:{port}\""""
         )
     routes = routes or {}
     backends = [(name, PROVIDERS[name]) for name in providers]
@@ -437,7 +472,7 @@ spec:
       backendRefs:
         - name: {provider}
           namespace: default
-          modelNameOverride: {json.dumps(own)}
+          modelNameOverride: {json.dumps(_provider_name(provider, own))}
       timeouts:
         request: 10m"""
         )
@@ -485,7 +520,7 @@ def export_config(
     the local gateway. The config is the one the SDK writes for the local gateway, listening on a
     fixed ``port``: one rule per model in the model list for ``providers`` (default: those whose keys
     are set here), plus ``models`` (full names the list lacks, such as a fine-tuned model), and this
-    computer's routes. A server cannot add a model when it is first asked for, as the local gateway does. Key values never appear: ``aigw`` fills in
+    computer's routes. Key values never appear: ``aigw`` fills in
     ``${OPENAI_API_KEY}``-style references from the server's environment. Authentication is on by
     default: set ``api_key_env`` on the server, and clients send that key in Authorization: Bearer
     or x-api-key. Keys are removed before forwarding. ``authentication=False`` explicitly exports
@@ -572,18 +607,32 @@ def _route_docs(r) -> list[str]:
     extension server then labels the whole rule with its first backend, so a fallback is sent the
     first backend's model name and key and the priorities are lost (``theagentrouter/agent-router``
     ``internal/extensionserver/post_translate_modify.go``, the ``LoadAssignment == nil`` case).
+
+    One request goes to every model in the route, so the gateway removes what a newer Claude refuses
+    before that model gets it. Otherwise a fallback to it fails on a temperature the first model took.
+    The removal runs on the request as the backend gets it, so Bedrock's fields have Converse's names.
     """
+    from .anthropic_format import _refuses_sampling
+
     name = _k8s_name(r.name)
     refs = []
     for priority, tier in enumerate(r.tiers):
         for model in tier:
             backend, own = _route_backend(model)
+            removed = []
+            if model.startswith("anthropic/") and _refuses_sampling(own):
+                removed = ["temperature", "top_p"]
+            elif model.startswith("bedrock/") and "claude" in own:
+                removed = ["additionalModelRequestFields.reasoning_config"]
+                if _refuses_sampling(own):
+                    removed = ["inferenceConfig.temperature", "inferenceConfig.topP", *removed]
+            mutation = f"\n          bodyMutation:\n            remove: [{', '.join(removed)}]" if removed else ""
             refs.append(
                 f"""        - name: {backend}
           namespace: default
           modelNameOverride: {json.dumps(own)}
           priority: {priority}
-          weight: 1"""
+          weight: 1{mutation}"""
             )
     docs = [
         f"""apiVersion: aigateway.envoyproxy.io/v1beta1
@@ -649,6 +698,8 @@ spec:
         - reset
         - retriable-status-codes"""
         )
+    elif r.limit:
+        policy.append(_RETRY_FAILED_CONNECTIONS)  # a route's own policy replaces the gateway's
     if policy:
         # One policy per route: Envoy Gateway takes only one BackendTrafficPolicy for an HTTPRoute.
         docs.append(
@@ -1033,6 +1084,9 @@ def _start(providers: list[str], models: list[str], routes: dict | None = None) 
     except BaseException:
         stop({"pid": proc.pid})
         raise
+    # aigw outlives this program on purpose. Without this, Python warns "subprocess N is still running"
+    # when proc goes; _alive() and _stopped() still collect it if it exits while this program runs.
+    proc.returncode = 0
     print(
         f"theagentrouter: started the local gateway on http://{HOST}:{port} "
         f"(providers from your environment: {', '.join(providers)}).",
@@ -1124,11 +1178,6 @@ def ensure(model: str) -> dict:
         if serves(state, model, current):
             check_credentials(state)
             return state
-        if state and model not in current and model not in routed_models(list(PROVIDERS)):
-            raise exceptions.NotFoundError(
-                f"unknown local model {model!r}; check the name or register_model() before using a custom model",
-                model=model,
-            )
         if state and state.get("versions") != versions():
             raise exceptions.BadRequestError(
                 "the local gateway was started by another SDK version; stop it explicitly when other programs "

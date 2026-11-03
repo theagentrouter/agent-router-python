@@ -28,7 +28,7 @@ n = ar.token_counter(model="openai/gpt-5.4-mini", messages=messages)  # the gate
 
 - Model names are `provider/model`; a name on the model list (`gpt-5.4-mini`) finds its provider, as in LiteLLM.
 - Keys come from the provider's usual environment variable (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, ...). Never put a key in code.
-- `tools`, `tool_choice`, `response_format`, `temperature`, `max_tokens`, `timeout`, `api_key`, `api_base`, `extra_headers` work as in LiteLLM.
+- `tools`, `tool_choice`, `response_format`, `temperature`, `max_tokens`, `timeout`, `api_key`, `api_base`, `extra_headers` work as in LiteLLM. Claude from Opus 4.7 on refuses `temperature` and `top_p`: leave them out, or pass `drop_params=True`.
 - Errors have LiteLLM's names: `ar.exceptions.RateLimitError`, `AuthenticationError`, `ContextWindowExceededError`, ...
 
 ## Where calls go
@@ -59,7 +59,7 @@ Routes are served by the local gateway and shared by every program on the comput
 
 ## Agent frameworks
 
-Google ADK, the OpenAI Agents SDK and other code that imports `litellm`: call this before importing the framework.
+Google ADK, the OpenAI Agents SDK and other code that imports `litellm`: call this before importing the framework. `langchain-litellm`, LlamaIndex, Strands and CrewAI with `is_litellm=True` do not work yet.
 
 ```python
 from theagentrouter.compat import install_as_litellm

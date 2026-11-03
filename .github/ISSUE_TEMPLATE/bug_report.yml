@@ -21,7 +21,7 @@ body:
     id: route
     attributes:
       label: Where the call goes
-      options: [Direct to the provider, Through a gateway (AGENTROUTER_BASE_URL), api_base on the call]
+      options: [The local gateway, A gateway set with AGENTROUTER_BASE_URL, api_base on the call]
     validations:
       required: true
   - type: input

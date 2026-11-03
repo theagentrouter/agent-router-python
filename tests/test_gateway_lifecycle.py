@@ -1,4 +1,4 @@
-"""Go-live regressions using real child processes, locks, files and HTTP requests."""
+"""Starting and stopping the gateway, using real child processes, locks, files and HTTP requests."""
 
 import json
 import os

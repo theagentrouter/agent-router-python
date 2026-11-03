@@ -25,9 +25,7 @@ for question in ["Can I get a refund after 10 days?", "Can I get a refund after 
 resp = ar.anthropic.messages.create(
     model=model,
     max_tokens=2048,
-    thinking={
-        "type": "adaptive"
-    },  # Claude 5 decides how much to think; older models take {"type": "enabled", "budget_tokens": N}
+    thinking={"type": "adaptive"},  # the model decides how much to think
     messages=[
         {"role": "user", "content": "A customer paid $120 and returns 2 of 5 equal items. How much is refunded?"}
     ],

@@ -36,7 +36,7 @@ A provider is one row in `local_gateway.PROVIDERS`: the `aigw` schema it speaks,
 
 ## Code of conduct
 
-This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md).
+This project follows the [LF Projects Code of Conduct](CODE_OF_CONDUCT.md), as an Agentic AI Foundation project.
 
 ## License
 

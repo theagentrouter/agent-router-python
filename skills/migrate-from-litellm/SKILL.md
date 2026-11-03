@@ -14,7 +14,7 @@ grep -rnE "^\s*(import litellm|from litellm)" --include=*.py .
 grep -rnE "litellm" pyproject.toml requirements*.txt setup.cfg setup.py 2>/dev/null
 ```
 
-Also note frameworks that import LiteLLM themselves: Google ADK's `LiteLlm`, the OpenAI Agents SDK's `LitellmModel`, and tools built on LiteLLM.
+Also note frameworks that import LiteLLM themselves: Google ADK's `LiteLlm`, the OpenAI Agents SDK's `LitellmModel`, and tools built on LiteLLM. `langchain-litellm`, LlamaIndex, Strands and CrewAI with `is_litellm=True` do not work with this SDK yet; say so instead of migrating them.
 
 ## 2. Change the dependency
 

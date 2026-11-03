@@ -12,6 +12,7 @@ their signatures, which Anthropic needs back in a tool-use turn when thinking is
 from __future__ import annotations
 
 import json
+import re
 import warnings
 from collections.abc import Iterator
 from typing import Any
@@ -47,6 +48,80 @@ SUPPORTED_PARAMS = frozenset(
         "reasoning_effort",
         "response_format",
     )
+)
+
+# What each Claude model takes, as in LiteLLM's model list. The SDK's list has no field for it. A name on
+# neither is left for the API to answer, as LiteLLM leaves it.
+_CLAUDE = re.compile(r"claude-([a-z]+)-(\d)(?!\d)(?:[-._](\d{1,2})(?!\d))?")
+# Temperature other than 1, top_p and top_k are refused; effort "xhigh" is taken.
+_NEWER = frozenset(
+    (
+        ("opus", 4, 7),
+        ("opus", 4, 8),
+        ("opus", 5, 0),
+        ("opus", 5, 5),
+        ("sonnet", 5, 0),
+        ("sonnet", 5, 5),
+        ("haiku", 5, 5),
+        ("fable", 5, 0),
+        ("fable", 5, 1),
+        ("mythos", 5, 0),
+        ("mythos", 5, 1),
+    )
+)
+# A forced tool call (tool_choice "required" or a named tool) is refused.
+_NO_FORCED_TOOL = frozenset((("opus", 5, 5), ("sonnet", 5, 5), ("fable", 5, 1), ("mythos", 5, 1)))
+# Thinking cannot be turned off.
+_ALWAYS_THINKS = frozenset((("opus", 5, 5), ("sonnet", 5, 5)))
+# speed= is taken.
+_TAKES_SPEED = frozenset((("opus", 4, 6), ("opus", 4, 7), ("opus", 4, 8), ("opus", 5, 0), ("opus", 5, 5)))
+
+# reasoning_effort as a token budget, on a model before adaptive thinking.
+_BUDGETS = {"minimal": 1024, "low": 1024, "medium": 2048, "high": 4096, "xhigh": 8192, "max": 16384}
+_MIN_BUDGET = 1024
+
+# Anthropic refuses these in a structured output's schema. As LiteLLM does, they become a note in the description.
+_SCHEMA_NOTES = (
+    "minItems",
+    "maxItems",
+    "uniqueItems",
+    "contains",
+    "minContains",
+    "maxContains",
+    "prefixItems",
+    "minimum",
+    "maximum",
+    "exclusiveMinimum",
+    "exclusiveMaximum",
+    "multipleOf",
+    "minLength",
+    "maxLength",
+    "minProperties",
+    "maxProperties",
+    "patternProperties",
+    "propertyNames",
+    "dependentRequired",
+    "dependentSchemas",
+    "unevaluatedProperties",
+    "if",
+    "then",
+    "else",
+    "not",
+)
+# Anthropic refuses metadata.user_id when it holds an email address or a phone number; LiteLLM leaves those out.
+_NOT_A_USER_ID = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$|^\+?[\d\s()-]{7,}$")
+
+# What LiteLLM refuses for a Bedrock model, unless drop_params is set. The gateway would ignore them.
+_COHERE_REFUSES = ("logit_bias", "logprobs", "top_logprobs")
+_BEDROCK_REFUSES = (
+    *_COHERE_REFUSES,
+    "n",
+    "presence_penalty",
+    "frequency_penalty",
+    "seed",
+    "modalities",
+    "prediction",
+    "audio",
 )
 
 _warned: set[str] = set()
@@ -223,11 +298,14 @@ def convert_messages(messages: list[Any]) -> tuple[str | list[dict[str, Any]] | 
 def convert_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out = []
     for t in tools:
+        if t.get("type") not in (None, "function", "custom"):
+            out.append(dict(t))  # one of Anthropic's own tools, such as web search
+            continue
         f = t.get("function") or t
         tool = {
             "name": f.get("name"),
             "description": f.get("description", ""),
-            "input_schema": f.get("parameters") or {"type": "object", "properties": {}},
+            "input_schema": f.get("parameters") or f.get("input_schema") or {"type": "object", "properties": {}},
         }
         cache = t.get("cache_control") or f.get("cache_control")
         if cache:
@@ -249,20 +327,405 @@ def convert_tool_choice(choice: Any) -> dict[str, Any] | None:
         name = (choice.get("function") or {}).get("name") or choice.get("name")
         if name:
             return {"type": "tool", "name": name}
+        if choice.get("type") in ("auto", "any", "none"):
+            return {"type": choice["type"]}
     return None
 
 
-def _effort_levels(model: str) -> list[str] | None:
-    """The effort levels of a Claude model that thinks adaptively, from the model list; None for a token budget."""
+def _claude(model: str) -> tuple[str, int, int] | None:
+    """A Claude model's family and version: ``us.anthropic.claude-opus-4-6-v1`` is ("opus", 4, 6)."""
+    if "claude-mythos-preview" in model:
+        return ("mythos", 5, 0)
+    found = _CLAUDE.search(model)
+    return (found[1], int(found[2]), int(found[3] or 0)) if found else None
+
+
+def _adaptive(model: str) -> bool:
+    """Claude 4.6 and later think adaptively: the model decides how much, and effort says how hard."""
+    claude = _claude(model)
+    return claude is not None and claude[1:] >= (4, 6)
+
+
+def _refuses_sampling(model: str) -> bool:
+    """Whether this Claude model refuses temperature other than 1, top_p and top_k."""
+    claude = _claude(model)
+    return claude is not None and (claude in _NEWER or claude[0] == "fable")
+
+
+def _takes_xhigh(model: str) -> bool:
     from . import models
 
     key = models._key(model, "anthropic")
-    return (models.model_cost.get(key) or {}).get("reasoning_efforts") if key else None
+    return _claude(model) in _NEWER or "xhigh" in ((models.model_cost.get(key) or {}).get("reasoning_efforts") or ())
+
+
+def _always_thinks(model: str) -> bool:
+    claude = _claude(model)
+    return claude is not None and (claude in _ALWAYS_THINKS or claude[0] in ("fable", "mythos"))
+
+
+def _asked_max_tokens(params: dict[str, Any]) -> int | None:
+    """The caller's limit. As in LiteLLM, max_completion_tokens wins, and 0 is a limit (a cache pre-warm)."""
+    value = params.get("max_completion_tokens")
+    return params.get("max_tokens") if value is None else value
+
+
+def _max_output(model: str) -> int:
+    """The default max_tokens: the model's own limit, as in LiteLLM, or 4096 for a name not on the model list."""
+    from . import models
+
+    key = models._key(model, "anthropic")
+    info = models.model_cost.get(key) or {} if key else {}
+    return info.get("max_output_tokens") or info.get("max_tokens") or DEFAULT_MAX_TOKENS
+
+
+def _refused_sampling(model: str, params: dict[str, Any], gateway_decides: bool) -> list[str]:
+    """The sampling options to leave out. Without drop_params they raise, as in LiteLLM."""
+    refused = [
+        key
+        for key in ("temperature", "top_p", "top_k")
+        if _refuses_sampling(model) and params.get(key) is not None and not (key == "temperature" and params[key] == 1)
+    ]
+    if refused and not params.get("drop_params"):
+        if not gateway_decides:
+            raise exceptions.UnsupportedParamsError(
+                f"{model} does not support "
+                + ", ".join(f"{key}={params[key]!r}" for key in refused)
+                + ": it takes only temperature=1, and no top_p or top_k. Set drop_params=True to drop them.",
+                model=model,
+                llm_provider="anthropic",
+            )
+        return []
+    return refused
+
+
+def _downgrades_forced_tool(model: str, params: dict[str, Any], gateway_decides: bool) -> bool:
+    """Whether a forced tool call becomes "auto". Without drop_params it raises, as in LiteLLM."""
+    if _claude(model) not in _NO_FORCED_TOOL:
+        return False
+    if params.get("drop_params"):
+        _warn_once(
+            "forced_tool", f"{model} does not support a forced tool call; drop_params=True sends tool_choice 'auto'."
+        )
+        return True
+    if not gateway_decides:
+        raise exceptions.UnsupportedParamsError(
+            f"{model} does not support a forced tool call (tool_choice 'required' or a named tool). Use "
+            "tool_choice='auto' and say in the prompt when to call the tool, or set drop_params=True to use "
+            "'auto'.",
+            model=model,
+            llm_provider="anthropic",
+        )
+    return False
+
+
+def _warn_once(name: str, message: str) -> None:
+    if name not in _warned:
+        _warned.add(name)
+        warnings.warn(message, UserWarning, stacklevel=5)
+
+
+def _fit_budget(budget: int, max_tokens: int | None) -> dict[str, Any] | None:
+    """A token budget below max_tokens, as Claude needs; None when not even the smallest budget fits."""
+    if max_tokens is None:
+        return {"type": "enabled", "budget_tokens": budget}
+    if max_tokens <= _MIN_BUDGET:
+        return None
+    return {"type": "enabled", "budget_tokens": max_tokens - 1 if budget >= max_tokens else budget}
+
+
+def _budget_to_effort(model: str, budget: Any) -> str:
+    """A token budget as an effort level, for the models that refuse a budget. LiteLLM's steps."""
+    try:
+        budget = int(budget)
+    except (TypeError, ValueError):
+        budget = 0
+    if budget >= _BUDGETS["xhigh"] and _takes_xhigh(model):
+        return "xhigh"
+    if budget >= _BUDGETS["high"]:
+        return "high"
+    return "medium" if budget >= _BUDGETS["medium"] else "low"
+
+
+def _thinking(model: str, params: dict[str, Any], *, bedrock: bool = False) -> tuple[dict[str, Any] | None, str | None]:
+    """The thinking block and the effort level to send, by LiteLLM's rules for each model.
+
+    thinking wins over reasoning_effort, which then only sets the effort level of a model that has one.
+    """
+    effort = params.get("reasoning_effort")
+    if isinstance(effort, dict):  # as the OpenAI Responses API writes it
+        effort = effort.get("effort")
+    thinking, level = None, None
+    adaptive = _adaptive(model)
+    if isinstance(effort, str) and effort != "none":
+        if effort not in _BUDGETS:
+            raise _invalid_effort(model, effort)
+        if adaptive:
+            # Without display, Anthropic answers with empty thinking blocks.
+            thinking = {"type": "adaptive", "display": "summarized"}
+            level = "low" if effort == "minimal" else effort
+        else:
+            thinking = {"type": "enabled", "budget_tokens": _BUDGETS[effort]}
+            asked = _asked_max_tokens(params)
+            if asked and thinking["budget_tokens"] >= asked:
+                # Claude needs max_tokens above the budget; keep the caller's max_tokens and think less.
+                if asked <= _MIN_BUDGET:
+                    raise exceptions.BadRequestError(
+                        f"reasoning_effort needs max_tokens above {_MIN_BUDGET} for this model; got {asked}",
+                        model=model,
+                        llm_provider="anthropic",
+                    )
+                thinking["budget_tokens"] = asked - 1
+    wanted = params.get("thinking")
+    if wanted is True:
+        wanted = {"type": "enabled", "budget_tokens": _BUDGETS["medium"]}
+    if isinstance(wanted, dict):
+        kind = wanted.get("type")
+        if kind == "adaptive" and not adaptive:
+            # A model before 4.6 refuses adaptive thinking, so it gets the "medium" budget, below max_tokens.
+            thinking = _fit_budget(_BUDGETS["medium"], _asked_max_tokens(params))
+        elif kind == "enabled" and adaptive and _claude(model)[1:] != (4, 6):
+            # 4.7 and later refuse a fixed budget; 4.6 still takes one.
+            shown = {"display": wanted["display"]} if wanted.get("display") in ("summarized", "omitted") else {}
+            thinking = {"type": "adaptive", **shown}
+            level = level or _budget_to_effort(model, wanted.get("budget_tokens") or 0)
+        elif kind == "disabled" and _always_thinks(model):
+            thinking = None  # these refuse "disabled"; leaving it out is what Anthropic asks for
+        else:
+            thinking = wanted
+    if level == "xhigh" and not _takes_xhigh(model):
+        if bedrock and _claude(model) == ("opus", 4, 6):
+            level = "max"  # Bedrock's Opus 4.6 stops at max, and LiteLLM lowers it there
+        else:
+            raise exceptions.BadRequestError(
+                f"effort='xhigh' is not supported by this model. Got model: {model}",
+                model=model,
+                llm_provider="anthropic",
+            )
+    return thinking, level
+
+
+def _claude_schema(schema: Any) -> Any:
+    """A JSON schema as Anthropic's structured output takes it, changed as LiteLLM and Anthropic's own SDK change it.
+
+    What it refuses goes in the description, oneOf becomes anyOf, and every object closes with
+    additionalProperties false. Schemas that refer to $defs stay that way.
+    """
+    if not isinstance(schema, dict):
+        return schema
+    notes = [f"{key}: {json.dumps(schema[key])}" for key in _SCHEMA_NOTES if key in schema and schema[key] is not False]
+    out: dict[str, Any] = {}
+    for key, value in schema.items():
+        if key in _SCHEMA_NOTES:
+            continue
+        if key in ("properties", "$defs") and isinstance(value, dict):
+            out[key] = {name: _claude_schema(item) for name, item in value.items()}
+        elif key == "items" and isinstance(value, dict):
+            out[key] = _claude_schema(value)
+        elif key in ("anyOf", "oneOf") and isinstance(value, list):
+            out["anyOf"] = [*out.get("anyOf", []), *(_claude_schema(item) for item in value)]
+        elif key == "allOf" and isinstance(value, list):
+            out[key] = [_claude_schema(item) for item in value]
+        else:
+            out[key] = value
+    if notes:
+        note = "Note: " + ", ".join(notes) + "."
+        out["description"] = f"{schema['description']} {note}" if schema.get("description") else note
+    if out.get("type") == "object":
+        out["additionalProperties"] = False
+    return out
+
+
+def with_betas(headers: dict[str, str], body: dict[str, Any]) -> dict[str, str]:
+    """The anthropic-beta values a Messages request needs, as LiteLLM adds them, beside the caller's own."""
+    names = []
+    if body.get("compaction") is not None:
+        names.append("compact-2026-09-04")
+    management = body.get("context_management")
+    edits = (management.get("edits") or ()) if isinstance(management, dict) else ()
+    if any(edit.get("type") == "compact_20260112" for edit in edits):
+        names.append("compact-2026-01-12")
+    if any(edit.get("type") != "compact_20260112" for edit in edits):
+        names.append("context-management-2025-06-27")
+    if body.get("output_format") is not None or (body.get("output_config") or {}).get("format") is not None:
+        names.append("structured-outputs-2025-11-13")
+    if body.get("speed") == "fast":
+        names.append("fast-mode-2026-02-01")
+    if body.get("safeguards") is not None:
+        names.append("dangerous-tool-use-2026-09-03")
+    if not names:
+        return headers
+    out = {k: v for k, v in headers.items() if k.lower() != "anthropic-beta"}
+    given = [piece.strip() for k, v in headers.items() if k.lower() == "anthropic-beta" for piece in v.split(",")]
+    out["anthropic-beta"] = ",".join(dict.fromkeys([*filter(None, given), *names]))
+    return out
+
+
+def _invalid_effort(model: str, effort: Any) -> exceptions.BadRequestError:
+    return exceptions.BadRequestError(
+        f"Invalid reasoning_effort: {effort!r}. Must be one of: {', '.join(_BUDGETS)}, none",
+        model=model,
+        llm_provider="anthropic",
+    )
+
+
+def messages_params(
+    model: str, params: dict[str, Any], max_tokens: int, gateway_decides: bool = False
+) -> dict[str, Any]:
+    """LiteLLM's rules for anthropic.messages: Anthropic's own fields, changed only where a model refuses them."""
+    out = dict(params)
+    effort = out.pop("reasoning_effort", None)
+    if isinstance(out.get("metadata"), dict):
+        out["metadata"] = {k: v for k, v in out["metadata"].items() if k == "user_id"}
+    if "claude" not in model:
+        if effort is not None:
+            _warn_once("messages_effort", f"reasoning_effort is not sent for {model}, which is not a Claude name.")
+        return out
+    if not isinstance(out.get("output_config"), dict):
+        out.pop("output_config", None)
+    if out.get("speed") is not None and _claude(model) not in _TAKES_SPEED:
+        if not params.get("drop_params") and not gateway_decides:
+            raise exceptions.UnsupportedParamsError(
+                f"{model} does not support speed={out['speed']!r}. Set drop_params=True to drop it.",
+                model=model,
+                llm_provider="anthropic",
+            )
+        if params.get("drop_params"):
+            del out["speed"]
+    adaptive = _adaptive(model)
+    if isinstance(effort, str):
+        if effort == "none":
+            out.pop("thinking", None)
+            out.pop("output_config", None)
+        elif effort not in _BUDGETS:
+            raise _invalid_effort(model, effort)
+        else:
+            mapped = (
+                {"type": "adaptive", "display": "summarized"} if adaptive else _fit_budget(_BUDGETS[effort], max_tokens)
+            )
+            if mapped:
+                # The caller's thinking and output_config win.
+                out["thinking"] = out.get("thinking") or mapped
+                if adaptive:
+                    level = "low" if effort == "minimal" else effort
+                    if level == "xhigh" and not _takes_xhigh(model):
+                        raise exceptions.BadRequestError(
+                            f"effort='xhigh' is not supported by this model. Got model: {model}",
+                            model=model,
+                            llm_provider="anthropic",
+                        )
+                    out["output_config"] = {"effort": level, **(out.get("output_config") or {})}
+    thinking = out.get("thinking")
+    kind = thinking.get("type") if isinstance(thinking, dict) else None
+    if kind == "disabled" and _always_thinks(model):
+        out.pop("thinking")  # these refuse "disabled"; leaving it out is what Anthropic asks for
+    elif kind == "enabled" and adaptive and _claude(model)[1:] != (4, 6):
+        shown = {"display": thinking["display"]} if thinking.get("display") in ("summarized", "omitted") else {}
+        out["thinking"] = {"type": "adaptive", **shown}
+        level = _budget_to_effort(model, thinking.get("budget_tokens") or 0)
+        out["output_config"] = {"effort": level, **(out.get("output_config") or {})}
+    elif not adaptive:
+        config = out.get("output_config")
+        level = config.get("effort") if isinstance(config, dict) else None
+        if level is not None or kind == "adaptive":
+            if _claude(model) == ("opus", 4, 5) and (kind != "adaptive" or level in (None, "low", "medium", "high")):
+                # Opus 4.5 takes an effort level, and refuses adaptive thinking.
+                if kind == "adaptive":
+                    out.pop("thinking")
+            else:
+                level = level or "medium"
+                if level not in _BUDGETS:
+                    raise _invalid_effort(model, level)
+                out["thinking"] = _fit_budget(_BUDGETS[level], max_tokens)
+                if isinstance(config, dict):
+                    rest = {k: v for k, v in config.items() if k != "effort"}
+                    out["output_config"] = rest or None
+        thinking = out.get("thinking")
+        config = out.get("output_config")
+        thinks = isinstance(thinking, dict) and thinking.get("type") == "enabled"
+        if out.get("temperature") not in (None, 1) and (
+            thinks or (isinstance(config, dict) and config.get("effort") is not None)
+        ):
+            del out["temperature"]  # Anthropic takes only temperature=1 while thinking
+    for key in _refused_sampling(model, out, gateway_decides):
+        out.pop(key, None)
+    return out
+
+
+def bedrock_params(model: str, params: dict[str, Any], gateway_decides: bool = False) -> dict[str, Any]:
+    """LiteLLM's rules for a Bedrock call, in the OpenAI format the gateway turns into Bedrock's Converse.
+
+    The gateway reads temperature, top_p, max_tokens, tool_choice and thinking from that format, and
+    has no field for an effort level, top_k, parallel_tool_calls or response_format.
+    """
+    out = dict(params)
+    cohere = "cohere." in model
+    refused = [
+        key
+        for key in (_COHERE_REFUSES if cohere else _BEDROCK_REFUSES)
+        if params.get(key) is not None and not (key == "n" and params[key] == 1)
+    ]
+    if refused and not params.get("drop_params"):
+        if not gateway_decides:
+            raise exceptions.UnsupportedParamsError(
+                f"Bedrock does not support these parameters: {', '.join(refused)}. Set drop_params=True to drop them.",
+                model=model,
+                llm_provider="bedrock",
+            )
+    else:
+        for key in refused:
+            del out[key]
+    if out.get("response_format") is not None:
+        _warn_once("bedrock_format", "The gateway cannot send response_format to Bedrock; it is not sent.")
+    if out.get("tool_choice") == "none":
+        # The gateway would read "none" as the name of a tool to force.
+        if not params.get("drop_params") and not cohere:
+            raise exceptions.UnsupportedParamsError(
+                "Bedrock does not support tool_choice='none'. Set drop_params=True to drop it.",
+                model=model,
+                llm_provider="bedrock",
+            )
+        del out["tool_choice"]
+    if out.get("parallel_tool_calls") is False:
+        _warn_once("bedrock_parallel", "The gateway cannot send parallel_tool_calls=False to Bedrock; it is not sent.")
+    if "claude" not in model and "arn:" not in model:  # an inference profile's ARN may hide a Claude model
+        return out
+    for key in _refused_sampling(model, params, gateway_decides):
+        out.pop(key, None)
+    choice = out.get("tool_choice")
+    forced = choice == "required" or (
+        isinstance(choice, dict) and ((choice.get("function") or {}).get("name") or choice.get("name"))
+    )
+    if forced and _downgrades_forced_tool(model, params, gateway_decides):
+        out["tool_choice"] = "auto"
+    if out.get("top_k") is not None:
+        _warn_once("bedrock_top_k", "The gateway cannot send top_k to Bedrock; it is not sent.")
+    thinking, level = _thinking(model, params, bedrock=True)
+    out.pop("reasoning_effort", None)
+    if level:
+        _warn_once(
+            "bedrock_effort",
+            "The gateway cannot send an effort level to Bedrock, so Claude uses its default; thinking is still on.",
+        )
+    if thinking:
+        budget = thinking.get("budget_tokens")
+        if isinstance(budget, int):
+            thinking = {**thinking, "budget_tokens": max(budget, _MIN_BUDGET)}  # Bedrock's minimum, as LiteLLM sets
+            if _asked_max_tokens(params) is None:
+                out["max_tokens"] = thinking["budget_tokens"] + DEFAULT_MAX_TOKENS
+        out["extra_body"] = {"thinking": thinking, **(out.get("extra_body") or {})}
+    return out
 
 
 def build_body(
-    model: str, messages: list[Any], tools: list[dict[str, Any]] | None, stream: bool, params: dict[str, Any]
+    model: str,
+    messages: list[Any],
+    tools: list[dict[str, Any]] | None,
+    stream: bool,
+    params: dict[str, Any],
+    gateway_decides: bool = False,
 ) -> dict[str, Any]:
+    # gateway_decides: a gateway you set owns its model names, so what a name refuses is its call, not ours.
     # As LiteLLM: n=1 is always fine; the rest raise unless drop_params is set, which drops them.
     unsupported = [
         key
@@ -277,17 +740,20 @@ def build_body(
             model=model,
             llm_provider="anthropic",
         )
+    refused = _refused_sampling(model, params, gateway_decides)
     system, converted = convert_messages(messages)
     body: dict[str, Any] = {
         "model": model,
         "messages": converted,
-        "max_tokens": params.get("max_tokens") or params.get("max_completion_tokens") or DEFAULT_MAX_TOKENS,
+        "max_tokens": _asked_max_tokens(params),
     }
     if system:
         body["system"] = system
     if tools:
         body["tools"] = convert_tools(tools)
         choice = convert_tool_choice(params.get("tool_choice"))
+        if choice and choice["type"] in ("any", "tool") and _downgrades_forced_tool(model, params, gateway_decides):
+            choice = {"type": "auto"}
         if params.get("parallel_tool_calls") is not None:
             choice = choice or {"type": "auto"}
             if choice["type"] != "none":
@@ -295,61 +761,30 @@ def build_body(
         if choice:
             body["tool_choice"] = choice
     for key in ("temperature", "top_p", "top_k"):
-        if params.get(key) is not None:
+        if params.get(key) is not None and key not in refused:
             body[key] = params[key]
     stop = params.get("stop")
     if stop:
         body["stop_sequences"] = [stop] if isinstance(stop, str) else list(stop)
-    if params.get("user"):
-        body["metadata"] = {"user_id": str(params["user"])}
-    thinking = params.get("thinking")
-    effort = params.get("reasoning_effort")
-    levels = _effort_levels(model)
-    if levels:
-        # Claude 5 and later think adaptively: the model decides how much, and effort says how hard.
-        # They refuse a fixed budget, so LiteLLM's {"type": "enabled", "budget_tokens": N} becomes adaptive.
-        if isinstance(thinking, dict) and thinking.get("type") == "enabled":
-            thinking = {"type": "adaptive"}
-        if thinking is None and effort not in (None, "none"):
-            level = "low" if effort == "minimal" else effort
-            if level not in levels:
-                raise exceptions.BadRequestError(
-                    f"Invalid reasoning_effort: {effort!r}; this model takes {', '.join(levels)}",
-                    model=model,
-                    llm_provider="anthropic",
-                )
-            thinking = {"type": "adaptive"}
-            body["output_config"] = {**(body.get("output_config") or {}), "effort": level}
-    elif thinking is None and effort not in (None, "none"):
-        budgets = {"minimal": 1024, "low": 1024, "medium": 2048, "high": 4096, "xhigh": 8192, "max": 16384}
-        if effort not in budgets:
-            raise exceptions.BadRequestError(
-                f"Invalid reasoning_effort: {effort!r}", model=model, llm_provider="anthropic"
-            )
-        budget = budgets[effort]
-        asked = params.get("max_tokens") or params.get("max_completion_tokens")
-        if asked and budget >= asked:
-            # Claude needs max_tokens above the budget; keep the caller's max_tokens and think less.
-            if asked <= 1024:
-                raise exceptions.BadRequestError(
-                    f"reasoning_effort needs max_tokens above 1024 for this model; got {asked}",
-                    model=model,
-                    llm_provider="anthropic",
-                )
-            budget = asked - 1
-        thinking = {"type": "enabled", "budget_tokens": budget}
+    user = params.get("user")
+    if isinstance(user, str) and user and not _NOT_A_USER_ID.match(user):
+        body["metadata"] = {"user_id": user}
+    thinking, level = _thinking(model, params)
     if thinking:
         body["thinking"] = thinking
-        budget = (thinking.get("budget_tokens") or 0) if isinstance(thinking, dict) else 0
-        if not (params.get("max_tokens") or params.get("max_completion_tokens")) and budget >= body["max_tokens"]:
-            body["max_tokens"] = budget + DEFAULT_MAX_TOKENS  # Claude needs room for the answer after thinking
+    if level:
+        body["output_config"] = {"effort": level}
+    if body["max_tokens"] is None:
+        budget = thinking.get("budget_tokens") if thinking else None
+        # Claude needs room for the answer after thinking.
+        body["max_tokens"] = budget + DEFAULT_MAX_TOKENS if isinstance(budget, int) else _max_output(model)
     response_format = params.get("response_format")
     if response_format:
         schema = response_format.get("response_schema") or (response_format.get("json_schema") or {}).get("schema")
         if schema is not None:
             body["output_config"] = {
                 **(body.get("output_config") or {}),
-                "format": {"type": "json_schema", "schema": schema},
+                "format": {"type": "json_schema", "schema": _claude_schema(schema)},
             }
         elif response_format.get("type") == "json_object" and "json_object" not in _warned:
             _warned.add("json_object")

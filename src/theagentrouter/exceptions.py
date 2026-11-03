@@ -182,6 +182,7 @@ _CONTEXT_HINTS = (
     "too many tokens",
     "prompt is too long",
     "context window",
+    "input tokens exceed the configured limit",  # OpenAI's newer models; on LiteLLM's list too
 )
 _POLICY_HINTS = ("content policy", "content_policy", "content_filter", "safety system")
 # A 429 is a budget block only when it says so: Agent Router sends code "budget_exceeded", and a

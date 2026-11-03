@@ -1,8 +1,7 @@
 """Agent Router's SDK only: the app's calls through gateways, with the fake provider behind them.
 
 The local gateway tests start the real aigw (theagentrouter-local-gateway) and skip without it.
-They cover the go-live readiness review's findings about the gateway; known_gap marks what is
-still open.
+known_gap marks what is still open.
 """
 
 import json
@@ -61,7 +60,7 @@ def test_messages_api_through_the_local_gateway(gateway):
     assert resp["content"][0]["type"] == "text"
 
 
-# ---- who can call the local gateway (review S1) -------------------------------------------------
+# ---- who can call the local gateway ------------------------------------------------------------
 
 
 def _network_address():
@@ -86,7 +85,7 @@ def test_local_gateway_refuses_other_computers(gateway, fake):
     assert len(fake.requests) == sent
 
 
-# ---- which key goes where (review S3) -----------------------------------------------------------
+# ---- which key goes where -----------------------------------------------------------------------
 
 
 def test_stored_key_stays_with_its_gateway(fake, tmp_path):
@@ -101,7 +100,7 @@ def test_stored_key_stays_with_its_gateway(fake, tmp_path):
     assert "acme-stored" not in json.dumps(fake.requests[-1][1])
 
 
-# ---- one gateway shared by every program (review H3, H4) ----------------------------------------
+# ---- one gateway shared by every program --------------------------------------------------------
 
 
 @pytest.mark.parametrize("params", [{"on": (42,)}, {"timeout": -1}, {"backoff": -1}, {"attempts": 1.5}])
@@ -126,9 +125,12 @@ def test_fractional_retry_timeout_works_through_the_gateway(gateway, monkeypatch
         remove_route("chat")
 
 
-def test_unknown_model_does_not_restart_the_gateway(gateway):
+def test_a_model_name_without_a_rule_restarts_the_gateway_with_one(gateway):
+    # As LiteLLM sends any name to the provider.
     litellm.completion(model=OPENAI, messages=HELLO)
     before = gateway.running()["pid"]
-    with pytest.raises(litellm.APIError):
-        litellm.completion(model="openai/gpt-4o-mini-typo", messages=HELLO)
-    assert gateway.running()["pid"] == before
+    litellm.completion(model="openai/acme-tuned", messages=HELLO)
+    state = gateway.running()
+    assert state["pid"] != before and "openai/acme-tuned" in state["models"]
+    litellm.completion(model=OPENAI, messages=HELLO)  # the rules it had stay, with no second restart
+    assert gateway.running()["pid"] == state["pid"]

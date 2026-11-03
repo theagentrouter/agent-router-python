@@ -175,6 +175,14 @@ Installing from source, checking the install, upgrading and removing: [docs/inst
 2. **Agent Router handles the calls.** The gateway does fallbacks, retries, request limits, provider keys and logging. The SDK only does what a gateway can't, like building LiteLLM's response objects or running your callbacks.
 3. **Same API as LiteLLM.** Same function names, arguments, responses and errors.
 
+## Contact
+
+Join the [Agent Router Discord](https://discord.gg/xuxtPq43gZ) to ask questions. To report a security problem, see [SECURITY.md](SECURITY.md).
+
 ## License
 
 [Apache License 2.0](LICENSE).
+
+---
+
+Agent Router is an Agentic AI Foundation project, powered by Envoy. Copyright © Agent Router a Series of LF Projects, LLC. For web site terms of use, [trademark policy](https://theagentrouter.ai/trademark-policy) and other project policies please see <https://lfprojects.org>.

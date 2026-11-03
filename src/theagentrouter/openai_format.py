@@ -56,26 +56,72 @@ def build_body(
     params: dict[str, Any],
     provider: str | None = None,
 ) -> dict[str, Any]:
-    # thinking_blocks carry Anthropic signatures; the OpenAI format has no place for them.
     body: dict[str, Any] = {
         "model": model,
-        "messages": [{k: v for k, v in _plain(m).items() if k != "thinking_blocks"} for m in messages],
+        "messages": [_with_thinking(_plain(m), provider == "bedrock") for m in messages],
     }
     if tools:
         body["tools"] = tools
     for key in PASSTHROUGH:
         if params.get(key) is not None:
             body[key] = params[key]
-    if provider in ("openai", "azure") and "max_tokens" in body and "max_completion_tokens" not in body:
+    if provider in ("openai", "azure") and "max_tokens" in body:
         # OpenAI replaced max_tokens with max_completion_tokens, and its newer models refuse max_tokens,
-        # on Azure OpenAI too.
-        body["max_completion_tokens"] = body.pop("max_tokens")
+        # on Azure OpenAI too. If both are set, max_completion_tokens wins.
+        limit = body.pop("max_tokens")
+        body.setdefault("max_completion_tokens", limit)
     if params.get("extra_body"):
         body.update(params["extra_body"])
     if stream:
         body["stream"] = True
         body["stream_options"] = {"include_usage": True, **(params.get("stream_options") or {})}
     return body
+
+
+def _with_thinking(message: dict[str, Any], keep: bool) -> dict[str, Any]:
+    """An assistant's thinking_blocks carry Anthropic's signatures, and only Claude on Bedrock takes them back here.
+
+    The gateway reads them as content parts, and turns them into Converse's reasoning content.
+    """
+    blocks = message.pop("thinking_blocks", None)
+    if not keep or not blocks:
+        return message
+    parts: list[dict[str, Any]] = []
+    for block in blocks:
+        if block.get("type") == "thinking" and block.get("signature"):
+            parts.append({"type": "thinking", "text": block.get("thinking", ""), "signature": block["signature"]})
+        elif block.get("type") == "redacted_thinking" and block.get("data"):
+            parts.append({"type": "redacted_thinking", "redactedContent": block["data"]})
+    content = message.get("content")
+    if isinstance(content, list):
+        parts.extend(content)
+    elif content:
+        parts.append({"type": "text", "text": content})
+    message["content"] = parts or content
+    return message
+
+
+def response_format_of(value: Any) -> Any:
+    """LiteLLM's response_format=SomeModel: a pydantic class as a strict JSON schema."""
+    if not (isinstance(value, type) and hasattr(value, "model_json_schema")):
+        return value
+    return {
+        "type": "json_schema",
+        "json_schema": {"schema": _strict(value.model_json_schema()), "name": value.__name__, "strict": True},
+    }
+
+
+def _strict(schema: Any) -> Any:
+    """What OpenAI's strict mode asks of a schema: closed objects, every property required, no null default."""
+    if isinstance(schema, list):
+        return [_strict(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+    out = {k: _strict(v) for k, v in schema.items() if not (k == "default" and v is None)}
+    if out.get("type") == "object" and isinstance(out.get("properties"), dict):
+        out["required"] = list(out["properties"])
+        out["additionalProperties"] = False
+    return out
 
 
 def _plain(message: Any) -> dict[str, Any]:
@@ -135,6 +181,7 @@ def parse_response(data: dict[str, Any]) -> ModelResponse:
                     content=m.get("content"),
                     tool_calls=_tool_calls(m.get("tool_calls")),
                     reasoning_content=m.get("reasoning_content") or m.get("reasoning"),
+                    thinking_blocks=m.get("thinking_blocks"),
                     refusal=m.get("refusal"),
                     annotations=m.get("annotations"),
                     audio=m.get("audio"),
@@ -167,6 +214,7 @@ def parse_chunk(data: dict[str, Any]) -> ModelResponseStream:
                     tool_calls=_tool_calls(d.get("tool_calls")),
                     refusal=d.get("refusal"),
                     reasoning_content=d.get("reasoning_content") or d.get("reasoning"),
+                    thinking_blocks=d.get("thinking_blocks"),
                     annotations=d.get("annotations"),
                     audio=d.get("audio"),
                 ),
@@ -204,6 +252,9 @@ class StreamParser:
 
     done = False
 
+    def __init__(self, provider: str | None = None) -> None:
+        self.provider = provider
+
     def feed(self, payload: str) -> list[ModelResponseStream]:
         if payload == "[DONE]":
             self.done = True
@@ -215,7 +266,14 @@ class StreamParser:
             if not isinstance(status, int) or not 400 <= status <= 599:
                 status = 500
             raise exceptions.from_http(status, payload, data.get("model"), None)
-        return [parse_chunk(data)]
+        chunk = parse_chunk(data)
+        if self.provider == "bedrock":
+            # The gateway streams thinking text apart from its signature. LiteLLM's shape has both as
+            # thinking_blocks fragments, and stream_chunk_builder joins them into a block that can go back.
+            for choice in chunk.choices:
+                if choice.delta.reasoning_content and not choice.delta.thinking_blocks:
+                    choice.delta.thinking_blocks = [{"type": "thinking", "thinking": choice.delta.reasoning_content}]
+        return [chunk]
 
 
 def parse_stream(lines: Iterator[str]) -> Iterator[ModelResponseStream]:

@@ -47,7 +47,7 @@ Every call goes through a gateway: the local gateway (Agent Router on this compu
 | `bedrock/` | `AWS_PROFILE`, or `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; and `AWS_REGION` |
 | `azure/` | `AZURE_API_KEY` and `AZURE_API_BASE` (your resource's endpoint); `AZURE_API_VERSION` if you need a version other than `2024-10-21` |
 
-For Azure OpenAI, the name after `azure/` is your deployment's name: `azure/gpt-5-mini` calls the deployment `gpt-5-mini`. As with Bedrock, the bundled model list has none of these names, so a second deployment needs `register_model` before a running gateway can take it (see [Adding models](#adding-models)).
+For Azure OpenAI, the name after `azure/` is your deployment's name: `azure/gpt-5-mini` calls the deployment `gpt-5-mini`. As with Bedrock, the bundled model list has none of these names, so each new one restarts a running gateway with a rule for it. To avoid that, add them with `register_model` first (see [Adding models](#adding-models)).
 
 `api_key=` on a call is used in two cases: with `api_base=`, as the key for that endpoint, and with a gateway you set, as that gateway's key. With the local gateway it has no effect and warns once, because the local gateway reads provider keys from the environment when it starts.
 
@@ -59,7 +59,34 @@ For OpenAI Chat Completions, these go to the provider as they are:
 
 `temperature`, `top_p`, `n`, `stop`, `max_tokens`, `max_completion_tokens`, `presence_penalty`, `frequency_penalty`, `logit_bias`, `logprobs`, `top_logprobs`, `seed`, `response_format`, `tool_choice`, `parallel_tool_calls`, `reasoning_effort`, `user`, `modalities`, `prediction`, `audio`, `service_tier`.
 
-For Claude, which goes to the gateway in Anthropic's Messages format (so prompt caching and thinking keep working), the SDK translates `temperature`, `top_p`, `top_k`, `stop`, `max_tokens`, `max_completion_tokens`, `tool_choice`, `parallel_tool_calls` and `user`, and passes `thinking` (`thinking={"type": "enabled", "budget_tokens": 1024}`). `parallel_tool_calls=False` allows at most one tool call. `n=1` is fine. `reasoning_effort` maps to a thinking budget, and a JSON schema in `response_format` maps to the Messages output format. Claude has no JSON mode without a schema, so a plain `json_object` is not applied: the call goes ahead without it, and the SDK warns once. OpenAI-only options such as `seed` raise `UnsupportedParamsError`; with `drop_params=True` (or `theagentrouter.drop_params = True`) they are dropped instead. Use `extra_body` for other native Anthropic options. Prompt caching takes LiteLLM's `cache_control` markers: on a content part, on a whole message, or on a tool; cache reads show in `usage.prompt_tokens_details.cached_tokens`. With thinking on, the reply carries `reasoning_content` and `thinking_blocks` (streamed: `delta.reasoning_content`); send the assistant message back as it is with the tool result, since Anthropic needs its signed thinking blocks. Model capability lookups describe the bundled model catalog; they do not promise that this SDK translates every native option.
+For Claude, which goes to the gateway in Anthropic's Messages format (so prompt caching and thinking keep working), the SDK translates `temperature`, `top_p`, `top_k`, `stop`, `max_tokens`, `max_completion_tokens`, `tool_choice`, `parallel_tool_calls` and `user`. `parallel_tool_calls=False` allows at most one tool call. As in LiteLLM, `user` is left out when it is an email address or a phone number, which Anthropic refuses, `tools` also takes Anthropic's own shape and its hosted tools, and `n=1` is fine. A JSON schema in `response_format` maps to the Messages output format, changed as in LiteLLM: every object closes with `additionalProperties: false`, `oneOf` becomes `anyOf`, and what Anthropic refuses, such as `maximum`, moves into the description. `response_format` also takes a pydantic class, for every provider. Claude has no JSON mode without a schema, so a plain `json_object` is not applied: the call goes ahead without it, and the SDK warns once.
+
+To turn on thinking, use `reasoning_effort="low"` (or another level), or LiteLLM's `thinking={"type": "enabled", "budget_tokens": 1024}`. What reaches Claude depends on the model, by LiteLLM's rules:
+
+| You pass | Before Opus 4.6 and Sonnet 4.6 | Opus 4.6 and Sonnet 4.6 | Opus 4.7 and newer |
+|---|---|---|---|
+| `reasoning_effort` | A token budget: 1024 for `minimal` and `low`, 2048 for `medium`, 4096 for `high`, 8192 for `xhigh`, 16384 for `max` | Adaptive thinking at that level. `minimal` is `low`, and `xhigh` raises `BadRequestError` | Adaptive thinking at that level. `minimal` is `low` |
+| `thinking` with `budget_tokens` | As written | As written | Adaptive thinking, at the level that fits the budget |
+| `thinking={"type": "adaptive"}` | A budget of 2048, below `max_tokens`. With `max_tokens` of 1024 or less, no thinking | As written | As written |
+| `thinking={"type": "disabled"}` | As written | As written | As written, but left out on Sonnet 5.5, Opus 5.5, Fable 5 and Fable 5.1, which always think |
+
+In adaptive thinking, the model decides how much to think. `thinking` wins over `reasoning_effort`, which then only sets the level on a model that has levels. `thinking=True` is the `medium` setting. For a Claude name the SDK does not know, the version in the name decides which column applies, and Anthropic answers for the rest.
+
+With `reasoning_effort` and a `max_tokens` at or below the token budget, LiteLLM sends the call and Anthropic refuses it. The SDK uses a smaller budget instead, and raises `BadRequestError` if `max_tokens` is 1024 or less.
+
+Without `max_tokens`, Claude gets the model's own limit from the model list, or 4096 for a name not on the list. With a token budget, it gets the budget plus 4096. If you pass both `max_tokens` and `max_completion_tokens`, `max_completion_tokens` wins.
+
+Some options raise `UnsupportedParamsError`; with `drop_params=True` (or `theagentrouter.drop_params = True`, which holds whatever a call says) they are dropped instead. `additional_drop_params=["seed"]` drops the options you name:
+
+- OpenAI-only options such as `seed`, on every Claude model.
+- `temperature` other than 1, `top_p` and `top_k`, on Opus 4.7 and every newer Claude model (Opus 4.8, Sonnet 5, Sonnet 5.5, Haiku 5.5, Opus 5, Opus 5.5, Fable 5, Fable 5.1).
+- A forced tool call (`tool_choice="required"` or a named tool), on Sonnet 5.5, Opus 5.5 and Fable 5.1. With `drop_params=True` the call uses `tool_choice="auto"`, and the SDK warns once.
+
+A gateway you set decides for itself: without `drop_params`, the last two go to it, because its model names are its own.
+
+Claude on Bedrock follows the same rules, by the name after `bedrock/`; an inference profile's ARN counts as a model before adaptive thinking unless it names a newer Claude. Signed thinking goes back to Bedrock with a tool result, as it does to Anthropic. On Bedrock models, `tool_choice="none"` raises `UnsupportedParamsError`, as do `seed`, `n` above 1, `presence_penalty`, `frequency_penalty`, `logit_bias`, `logprobs` and `top_logprobs`; with `drop_params=True` they are dropped. Cohere's models take all of these except `logit_bias`, `logprobs` and `top_logprobs`, and a gateway you set gets them all except `tool_choice="none"`. The gateway has no field for four things, so they do not reach Bedrock, and the SDK warns once for each: an effort level (Claude uses its default), `top_k`, `parallel_tool_calls=False` and `response_format`.
+
+Use `extra_body` for other native Anthropic options. Prompt caching takes LiteLLM's `cache_control` markers: on a content part, on a whole message, or on a tool; cache reads show in `usage.prompt_tokens_details.cached_tokens`. With thinking on, the reply carries `reasoning_content` and `thinking_blocks` (streamed: `delta.reasoning_content`); send the assistant message back as it is with the tool result, since Anthropic needs its signed thinking blocks. Model capability lookups describe the bundled model catalog; they do not promise that this SDK translates every native option.
 
 These control the call itself:
 
@@ -125,7 +152,7 @@ print(final.choices[0].message.content)
 ```python
 resp = theagentrouter.responses(input="Summarise yesterday's refunds", model="openai/gpt-6-luna", max_output_tokens=200)
 resp.output_text                       # the text of the output messages
-resp.output[0].content[0].text         # the reply as OpenAI sends it, by attribute or key
+resp.output[-1].content[0].text        # the reply as OpenAI sends it, by attribute or key; reasoning may come first
 resp.usage.input_tokens
 resp._hidden_params["response_cost"]
 ```
@@ -139,7 +166,7 @@ resp = theagentrouter.anthropic.messages.create(
     model="anthropic/claude-sonnet-5-5",
     max_tokens=1024,
     system=[{"type": "text", "text": policy, "cache_control": {"type": "ephemeral"}}],
-    thinking={"type": "enabled", "budget_tokens": 1024},
+    thinking={"type": "adaptive"},
     messages=[{"role": "user", "content": "Can I get a refund after 40 days?"}],
 )
 resp["content"]                        # thinking and text blocks, as Anthropic sends them
@@ -150,7 +177,7 @@ for event in theagentrouter.anthropic.messages.create(..., stream=True):
     print(event)                       # b'event: content_block_delta\ndata: {...}\n\n'
 ```
 
-LiteLLM's `anthropic.messages.create` and `acreate` (also `anthropic_messages`, the async one), through the gateway's `/anthropic/v1/messages`. The request and the reply are Anthropic's own format, not translated, so every Messages feature works: prompt caching, thinking, tools, citations and `anthropic-beta` headers (in `extra_headers`). The reply is a dict, as in LiteLLM, that also reads by attribute (`resp.content[0].text`). With `stream=True` you get the server-sent events as bytes, as in LiteLLM.
+LiteLLM's `anthropic.messages.create` and `acreate` (also `anthropic_messages`, the async one), through the gateway's `/anthropic/v1/messages`. The request and the reply are Anthropic's own format, so every Messages feature works: prompt caching, thinking, tools, citations and `anthropic-beta` headers (in `extra_headers`). As in LiteLLM, what a model refuses is changed first. `thinking` and `reasoning_effort` follow the table in [Parameters](#parameters), and `output_config.effort` becomes a token budget before Opus 4.6 and Sonnet 4.6. Opus 4.5 keeps the effort level and gets no adaptive thinking. Sampling options raise `UnsupportedParamsError` from Opus 4.7 on, unless `drop_params=True`. Before 4.6, a `temperature` other than 1 is dropped while thinking is on. `metadata` keeps only `user_id`. `speed`, `compaction`, `context_management`, `output_format`, `output_config.format` and `safeguards` get the `anthropic-beta` header they need, beside any of yours. The reply is a dict, as in LiteLLM, that also reads by attribute (`resp.content[0].text`). With `stream=True` you get the server-sent events as bytes, as in LiteLLM.
 
 Agent Router serves the Messages API for Claude, so other providers are refused with `BadRequestError`; use `completion` for them. Routes are refused too, because the local gateway answers a route in the OpenAI format; use `completion` with a route. `completion` also sends Claude in the Messages format, and translates it to and from OpenAI's shape; use `anthropic.messages.create` when your code already speaks Anthropic's format.
 
@@ -206,7 +233,7 @@ except exceptions.RateLimitError:
 
 | Error | When |
 |---|---|
-| `UnsupportedParamsError` | An option cannot be translated to the selected request format |
+| `UnsupportedParamsError` | An option cannot be translated to the selected request format, or the model refuses it |
 | `BadRequestError` | The request is wrong, for example a model name the SDK cannot place with a provider (`acme-model`), or a bare `gemini-…` name |
 | `ContextWindowExceededError` | The messages are too long for the model |
 | `ContentPolicyViolationError` | The provider refused the content |
@@ -336,7 +363,7 @@ theagentrouter: started the local gateway on http://127.0.0.1:52413 (providers f
 The port changes from start to start, so another Agent Router gateway on 1975 (your own `aigw run`, for example) never blocks it. Every program using the SDK finds the running gateway by itself; to reach it from another tool, read the port from that line or from `port` in `~/.agentrouter/local-gateway/state.json`. Two Agent Router gateways still cannot run on one computer: `aigw` keeps two internal ports fixed (1061 and 18000), so with another Agent Router gateway running the SDK says so and asks you to stop it or set `AGENTROUTER_BASE_URL`.
 
 - The SDK sets the gateway up from the provider keys in your environment. The gateway holds the keys: each is in a private file it reads (mode 0600), never in its config file.
-- It starts with a rule for every model in the SDK's bundled model list for those providers. Register a custom model with `register_model` before adding it to a running gateway. An unregistered model name raises `NotFoundError` and leaves the existing process running.
+- It starts with a rule for every model in the SDK's bundled model list for those providers. A model name without a rule restarts a running gateway with one, as LiteLLM sends any name to the provider. Register custom models with `register_model` before the gateway starts to avoid the restart.
 - `AGENTROUTER_AUTOSTART=0` stops the SDK from starting it.
 - A gateway set with `AGENTROUTER_BASE_URL` always wins, and then the SDK starts nothing.
 - Its files, including its log `aigw.log`, are in `~/.agentrouter/local-gateway/`.
@@ -380,7 +407,9 @@ The local gateway does the retries and the fallbacks, as Agent Router Enterprise
 - Routes are kept in `~/.agentrouter/routes.json` and shared by every program on the computer, like the local gateway. Defining a route again replaces it; `ar.list_routes()` and `ar.remove_route(name)` list and remove them.
 - A route can take a model's name, such as `openai/gpt-5.4` or `gpt-5.4`, as a group in the LiteLLM proxy's model list can. Every program's calls to that model then go through the route.
 - Define routes without local provider keys or a companion package when exporting configuration. The machine that starts the gateway needs credentials for every provider in the saved routes.
-- A route of Anthropic and other providers reaches Anthropic through its OpenAI-compatible endpoint.
+- A route sends one request, and any of its models may get it. In a route of OpenAI or Azure with Anthropic, Gemini, Groq or Bedrock models, `max_tokens` goes as `max_completion_tokens`, which they all take. Any other route sends what you wrote. If an OpenAI model refuses `max_tokens`, the SDK makes the call once more with `max_completion_tokens`. The gateway removes `temperature` and `top_p` before a request reaches a newer Claude model on Anthropic or Bedrock (see [Parameters](#parameters)), and an effort level before it reaches Claude on Bedrock.
+- `thinking` and `top_k` have no field in the OpenAI format, so they are not sent in a route, and the SDK warns once. `extra_body` reaches every model in the route.
+- A route reaches Anthropic through its OpenAI-compatible endpoint, which has its own rules: a JSON schema in `response_format` needs `"strict": true`, and prompt caching does not apply. A forced tool call is still refused on Sonnet 5.5, Opus 5.5 and Fable 5.1, even with `drop_params`.
 - **Limit:** `limit=ar.Limit(60, per="minute")` lets at most 60 requests a minute through the route; the gateway answers the rest with 429 (`RateLimitError`). `per` is `"second"`, `"minute"`, `"hour"` or `"day"`. The count covers every program on the computer that uses the route. It counts requests, not tokens (see [Known limits](local-gateway.md#known-limits)).
 
 LiteLLM's `Router` works on top of routes: see [Coming from LiteLLM](coming-from-litellm.md).
@@ -396,16 +425,19 @@ from theagentrouter import local_gateway
 Path("config.yaml").write_text(local_gateway.export_config(port=1975))
 ```
 
+`aigw` is the program inside the local gateway package, and it is not on your `PATH`. On a server, `pip install theagentrouter-local-gateway` and find it as below, or download it from [Agent Router's releases](https://github.com/theagentrouter/agent-router/releases).
+
 ```sh
 export AGENTROUTER_API_KEY=...             # the server client key; set it on clients too
-ENVOY_VERSION=1.39.4 aigw run config.yaml   # provider keys come from the server environment
+AIGW=$(python -c "from theagentrouter_local_gateway import binary_path; print(binary_path())")
+ENVOY_VERSION=1.39.4 "$AIGW" run config.yaml   # provider keys come from the server environment
 ```
 
 What the file holds:
 
 - **Providers:** those whose keys are set on your computer, or the ones you name: `export_config(providers=["openai", "anthropic"])`.
-- **Models:** a rule for every model in the SDK's bundled model list for those providers, with and without the provider in the name, plus any you added with `register_model`. **The server serves only these.** Unlike the local gateway, it cannot add a model when it is first asked for. The bundled list has no Bedrock, Mistral, DeepSeek or Together models, so for those providers name the models (`export_config(models=["mistral/mistral-large-latest"])`) or register LiteLLM's list first (see [Adding models](#adding-models)). Export again when the models change.
-- **Routes:** the routes defined on your computer, with their fallbacks, retries and limits.
+- **Models:** a rule for every model in the SDK's bundled model list for those providers, with and without the provider in the name, plus any you added with `register_model`. **The server serves only these.** The bundled list has no Bedrock, Mistral, DeepSeek or Together models, so for those providers name the models (`export_config(models=["mistral/mistral-large-latest"])`) or register LiteLLM's list first (see [Adding models](#adding-models)). Export again when the models change.
+- **Routes:** the routes defined on your computer, with their fallbacks, retries and limits. A client cannot see which models are behind a route's name, so `max_tokens` goes as written. If an OpenAI model refuses it, the SDK makes the call once more with `max_completion_tokens`. Pass `max_completion_tokens` yourself to save that extra request. A route name shaped like a Claude model, such as `claude-chat-5`, goes to the gateway as Claude, so use another name for a route.
 - **No key values:** only references such as `${OPENAI_API_KEY}`, which `aigw` fills in from the server's environment.
 
 Exported configurations require a client key by default. Set `AGENTROUTER_API_KEY` on the server and on each client. The gateway accepts `Authorization: Bearer <key>` or `x-api-key: <key>`, refuses a missing or wrong key with 403, and removes the client key before forwarding. A server started without `AGENTROUTER_API_KEY` refuses every request. `export_config(authentication=False)` explicitly exports an open endpoint. Terminate TLS in front of the server when callers use an untrusted network.

@@ -44,11 +44,9 @@ def _warn_ignored(params: dict[str, Any]) -> None:
 
 
 def drop_params(params: dict[str, Any]) -> bool:
-    """LiteLLM's drop_params: on the call, else on the module (``litellm.drop_params = True``)."""
-    if params.get("drop_params") is not None:
-        return bool(params["drop_params"])
+    """LiteLLM's drop_params: on the call or on the module (``litellm.drop_params = True``)."""
     modules = (sys.modules.get("theagentrouter"), sys.modules.get("theagentrouter.compat.litellm"))
-    return any(getattr(m, "drop_params", False) for m in modules)
+    return bool(params.get("drop_params")) or any(getattr(m, "drop_params", False) for m in modules)
 
 
 def _prepare(
@@ -56,6 +54,9 @@ def _prepare(
 ) -> tuple[routing.Target, dict[str, Any], dict[str, str]]:
     _warn_ignored(params)
     params = {**params, "drop_params": drop_params(params)}
+    for name in params.get("additional_drop_params") or ():
+        params.pop(name, None)
+    params["response_format"] = openai_format.response_format_of(params.get("response_format"))
     allowed = (
         set(openai_format.PASSTHROUGH)
         | set(IGNORED)
@@ -70,6 +71,7 @@ def _prepare(
             "request_timeout",
             "stream_timeout",
             "drop_params",
+            "additional_drop_params",
             "thinking",
             "top_k",
             "stream_options",
@@ -80,7 +82,8 @@ def _prepare(
         }
     )
     for key, value in params.items():
-        if key not in allowed and value is not None and key not in _warned:
+        # A name with a leading underscore is a framework's own flag for LiteLLM, not a request.
+        if key not in allowed and value is not None and key not in _warned and not key.startswith("_"):
             _warned.add(key)
             warnings.warn(
                 f"theagentrouter does not support {key}=; the argument is not sent.", UserWarning, stacklevel=3
@@ -96,14 +99,62 @@ def _prepare(
         api_key=params.get("api_key"),
         extra_headers={**(params.get("headers") or {}), **(params.get("extra_headers") or {})},
     )
+    if target.members:
+        for name in ("thinking", "top_k"):
+            if params.get(name) is not None and f"route_{name}" not in _warned:
+                _warned.add(f"route_{name}")
+                warnings.warn(
+                    f"a route goes in the OpenAI format, which has no {name}, so it is not sent. "
+                    "extra_body reaches every model in the route.",
+                    UserWarning,
+                    stacklevel=3,
+                )
     if target.format == routing.ANTHROPIC:
-        body = anthropic_format.build_body(target.model, messages, tools, stream, params)
+        body = anthropic_format.build_body(
+            target.model, messages, tools, stream, params, gateway_decides=target.route == "gateway"
+        )
         headers = anthropic_format.headers(target.api_key)
     else:
-        body = openai_format.build_body(target.model, messages, tools, stream, params, target.provider)
+        if target.provider == "bedrock" and not target.members:
+            params = anthropic_format.bedrock_params(target.model, params, gateway_decides=target.route == "gateway")
+        body = openai_format.build_body(target.model, messages, tools, stream, params, _openai_rules(target))
         headers = {"Authorization": f"Bearer {target.api_key}"} if target.api_key else {}
     headers.update({"content-type": "application/json", **target.headers})
     return target, body, headers
+
+
+def _openai_rules(target: routing.Target) -> str | None:
+    """The provider whose request rules a call follows, or None to send what the caller wrote.
+
+    A route sends one request, and any of its models may get it. OpenAI's newer models take only
+    max_completion_tokens, and Anthropic's OpenAI-compatible endpoint, Gemini, Groq and Bedrock through
+    the gateway take that too, so a route of those follows OpenAI's rules. A route with another provider
+    as well sends what the caller wrote, and _use_completion_tokens changes the field if an OpenAI model
+    refuses it.
+    """
+    providers = {member.split("/", 1)[0] for member in target.members}
+    if providers & {"openai", "azure"}:
+        return "openai" if providers <= {"openai", "azure", "anthropic", "gemini", "groq", "bedrock"} else None
+    return None if target.members and target.provider == "bedrock" else target.provider
+
+
+def _use_completion_tokens(error: exceptions.APIError, target: routing.Target, body: dict[str, Any]) -> bool:
+    """Change the request's max_tokens to max_completion_tokens if the model that got it asks for that.
+
+    LiteLLM's proxy knows the model behind a name, and sends it the field it takes. Behind a name the
+    SDK does not know, such as a route on a gateway you set, only the model's reply says which field
+    it takes. Returns True if the call should be made again.
+    """
+    if (
+        target.format != routing.OPENAI
+        or error.status_code != 400
+        or "max_tokens" not in body
+        or "max_completion_tokens" not in str(error)
+    ):
+        return False
+    limit = body.pop("max_tokens")
+    body.setdefault("max_completion_tokens", limit)  # OpenAI also refuses both at once; max_completion_tokens wins
+    return True
 
 
 def _timeout(params: dict[str, Any]) -> httpx.Timeout:
@@ -178,7 +229,9 @@ def _wrap(error: Exception, target: routing.Target, model: str) -> exceptions.AP
 
 
 def _stream_parser(target: routing.Target):
-    return anthropic_format.StreamParser() if target.format == routing.ANTHROPIC else openai_format.StreamParser()
+    if target.format == routing.ANTHROPIC:
+        return anthropic_format.StreamParser()
+    return openai_format.StreamParser(target.provider)
 
 
 def _retries(params: dict[str, Any]) -> int:
@@ -273,6 +326,11 @@ def complete(
     model: str, messages: list[Any], tools: list[dict[str, Any]] | None, params: dict[str, Any]
 ) -> ModelResponse:
     target, body, headers = _prepare(model, messages, tools, False, params)
+    try:
+        return _complete_one(target, body, headers, params, model)
+    except exceptions.BadRequestError as error:
+        if not _use_completion_tokens(error, target, body):
+            raise
     return _complete_one(target, body, headers, params, model)
 
 
@@ -295,6 +353,17 @@ def stream(
     model: str, messages: list[Any], tools: list[dict[str, Any]] | None, params: dict[str, Any]
 ) -> Iterator[ModelResponseStream]:
     target, body, headers = _prepare(model, messages, tools, True, params)
+    try:
+        return _open_stream(target, body, headers, params, model)
+    except exceptions.BadRequestError as error:
+        if not _use_completion_tokens(error, target, body):
+            raise
+    return _open_stream(target, body, headers, params, model)
+
+
+def _open_stream(
+    target: routing.Target, body: dict[str, Any], headers: dict[str, str], params: dict[str, Any], model: str
+) -> Iterator[ModelResponseStream]:
     for attempt in range(_retries(params) + 1):
         chunks = _shape_stream(target, body, headers, params, model)
         try:
@@ -371,6 +440,11 @@ async def acomplete(
     model: str, messages: list[Any], tools: list[dict[str, Any]] | None, params: dict[str, Any]
 ) -> ModelResponse:
     target, body, headers = await asyncio.to_thread(_prepare, model, messages, tools, False, params)
+    try:
+        return await _acomplete_one(target, body, headers, params, model)
+    except exceptions.BadRequestError as error:
+        if not _use_completion_tokens(error, target, body):
+            raise
     return await _acomplete_one(target, body, headers, params, model)
 
 
@@ -393,6 +467,17 @@ async def astream(
     model: str, messages: list[Any], tools: list[dict[str, Any]] | None, params: dict[str, Any]
 ) -> AsyncIterator[ModelResponseStream]:
     target, body, headers = await asyncio.to_thread(_prepare, model, messages, tools, True, params)
+    try:
+        return await _aopen_stream(target, body, headers, params, model)
+    except exceptions.BadRequestError as error:
+        if not _use_completion_tokens(error, target, body):
+            raise
+    return await _aopen_stream(target, body, headers, params, model)
+
+
+async def _aopen_stream(
+    target: routing.Target, body: dict[str, Any], headers: dict[str, str], params: dict[str, Any], model: str
+) -> AsyncIterator[ModelResponseStream]:
     for attempt in range(_retries(params) + 1):
         chunks = _ashape_stream(target, body, headers, params, model)
         try:

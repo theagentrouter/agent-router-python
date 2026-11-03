@@ -76,7 +76,10 @@ def test_configured_gateway_takes_claude_options_as_the_local_gateway_does(fake,
     body = fake.requests[-1][2]
     assert body["thinking"] == {"type": "enabled", "budget_tokens": 4096}
     assert body["max_tokens"] > body["thinking"]["budget_tokens"]
-    assert body["output_config"] == {"format": {"type": "json_schema", "schema": schema}}  # Anthropic's current field
+    # Anthropic's current field, with the schema closed as LiteLLM and Anthropic's own SDK close it.
+    assert body["output_config"] == {
+        "format": {"type": "json_schema", "schema": {**schema, "additionalProperties": False}}
+    }
     for name in ("anthropic/claude-sonnet-4-5", "claude-sonnet-4-5"):
         assert {"response_format", "reasoning_effort"} <= set(litellm.get_supported_openai_params(name))
 
@@ -197,7 +200,7 @@ def test_request_does_not_modify_caller_history(fake, provider):
     assert messages == original
 
 
-# --- review of 2026-10-12: one test per finding ------------------------------------------------------
+# --- one test per problem ----------------------------------------------------------------------------
 
 
 def test_fallback_wheel_without_a_program_counts_as_not_installed(monkeypatch):

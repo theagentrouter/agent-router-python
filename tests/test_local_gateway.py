@@ -299,23 +299,21 @@ def test_new_provider_restarts_the_gateway(env, monkeypatch):
     assert "bedrock/anthropic.claude-sonnet-4-5" in models and "openai/gpt-4o-mini" in models
 
 
-def test_unknown_model_requires_registration_before_restarting(env, monkeypatch):
+def test_a_model_name_without_a_rule_restarts_the_gateway_with_one(env, monkeypatch):
+    # As LiteLLM sends any name to the provider. The rules it had stay, so two new names settle quickly.
     state = {
         "pid": 1,
         "port": 1975,
         "providers": ["openai"],
-        "models": ["openai/gpt-4o-mini"],
+        "models": ["openai/gpt-4o-mini", "openai/acme-earlier"],
         "versions": local_gateway.versions(),
     }
     calls = _record(monkeypatch, state)
     assert local_gateway.ensure("openai/gpt-4o-mini") is state  # already routed: no restart
     assert calls == []
-    with pytest.raises(exceptions.NotFoundError, match="register_model"):
-        local_gateway.ensure("openai/acme-tuned")
-    assert calls == []
-    monkeypatch.setitem(theagentrouter.model_cost, "openai/acme-tuned", {})
     local_gateway.ensure("openai/acme-tuned")
-    assert calls[0] == ("stop", ["openai"]) and "openai/acme-tuned" in calls[1][2]
+    assert calls[0] == ("stop", ["openai"])
+    assert {"openai/acme-tuned", "openai/acme-earlier"} <= set(calls[1][2])
 
 
 def test_azure_config(env, monkeypatch):

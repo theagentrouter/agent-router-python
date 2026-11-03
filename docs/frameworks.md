@@ -6,13 +6,14 @@ Many agent frameworks reach models through LiteLLM. For those, theagentrouter an
 |---|---|---|
 | Google ADK | `install_as_litellm()`, then ADK's `LiteLlm` model | Tested: tool calls and answers, with and without streaming, on OpenAI and Anthropic |
 | OpenAI Agents SDK | `install_as_litellm()`, then the Agents SDK's `LitellmModel` | Tested: tool calls and answers, with and without streaming, on OpenAI and Anthropic |
-| CrewAI, DSPy, LangChain (`langchain-litellm`), smolagents, Strands, Aider, OpenHands and others that import `litellm` | `install_as_litellm()`, then the framework's LiteLLM model | Not tested yet. The SDK has every LiteLLM function these call, counted from their source |
+| LangChain (`langchain-litellm`), LlamaIndex, Strands, CrewAI with `is_litellm=True` | Not yet | They stop on LiteLLM names the SDK does not have |
+| DSPy, smolagents, Aider, OpenHands and others that import `litellm` | `install_as_litellm()`, then the framework's LiteLLM model | Not tested yet. A LiteLLM name the SDK does not have fails with `ImportError` or `AttributeError` |
 
 "Tested" means a real agent from that framework runs in a test against a local test server, and in a check against real OpenAI and Anthropic models, with LiteLLM not installed.
 
 CI runs the tests against a test server with the latest Google ADK and OpenAI Agents SDK on every change.
 
-Calls to Claude reject options this SDK cannot translate, including `response_format` and `reasoning_effort`. See [Parameters](usage.md#parameters) before enabling a framework's structured-output or reasoning settings. To turn on Claude's thinking, pass `extra_body={"thinking": {"type": "enabled", "budget_tokens": 1024}}`: in ADK to `LiteLlm(...)`, in the Agents SDK through `ModelSettings(extra_body=...)`.
+A framework's settings reach Claude as they do on a plain call. Newer Claude models refuse some of them, such as `temperature`, and with `drop_params` they are dropped: see [Parameters](usage.md#parameters). To turn on Claude's thinking, set `reasoning_effort`: in ADK `LiteLlm(model=..., reasoning_effort="low")`, in the Agents SDK `ModelSettings(reasoning=Reasoning(effort="low"))`. To drop what a model refuses, pass `drop_params=True`: in ADK to `LiteLlm(...)`, in the Agents SDK through `ModelSettings(extra_args={"drop_params": True})`.
 
 ## The one rule
 

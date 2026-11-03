@@ -1,7 +1,7 @@
 """Agent Router's aigw program, for theagentrouter's local gateway.
 
-Installed with ``pip install theagentrouter``. The SDK starts the program itself; nothing here is
-meant to be called by hand. On a computer with no platform wheel, pip installs the fallback wheel,
+Installed with ``pip install theagentrouter``. The SDK starts the program itself. To run an exported
+config on a server, ``binary_path()`` says where the program is. On a computer with no platform wheel, pip installs the fallback wheel,
 which has no program: ``has_binary()`` is then False and the SDK runs without a local gateway.
 """
 

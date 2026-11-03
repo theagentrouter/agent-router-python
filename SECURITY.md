@@ -2,7 +2,7 @@
 
 ## Reporting a problem
 
-Please do not open a public issue for a security problem. Use GitHub's private vulnerability reporting: the **Security** tab of this repository, then **Report a vulnerability**. Or email [TODO: add the security contact address].
+Please do not open a public issue for a security problem. Use GitHub's private vulnerability reporting: the **Security** tab of this repository, then **Report a vulnerability**. Or email Agent Router's security team at [envoy-ai-gateway-security@googlegroups.com](mailto:envoy-ai-gateway-security@googlegroups.com).
 
 Include the version, what an attacker could do, and steps to reproduce. We will reply to confirm we received it.
 
