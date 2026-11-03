@@ -299,6 +299,28 @@ def test_new_provider_restarts_the_gateway(env, monkeypatch):
     assert "bedrock/anthropic.claude-sonnet-4-5" in models and "openai/gpt-4o-mini" in models
 
 
+def test_the_gateway_and_its_admin_page_get_different_ports(env, monkeypatch):
+    # Two calls for a free port can return the same one. Envoy's admin page would then answer the SDK's calls.
+    monkeypatch.setenv("OPENAI_API_KEY", "acme")
+    free = iter([5001, 5001, 5001, 5002])
+    monkeypatch.setattr(local_gateway, "_free_port", lambda: next(free))
+    monkeypatch.setattr(local_gateway, "PORT", 0)
+    monkeypatch.setattr(local_gateway, "ADMIN_PORT", 0)
+    launched = []
+
+    class Stop(Exception):
+        pass
+
+    def launch(home, env, log_path, providers, models, routes, port, admin_port):
+        launched.append((port, admin_port))
+        raise Stop
+
+    monkeypatch.setattr(local_gateway, "_launch", launch)
+    with pytest.raises(Stop):
+        local_gateway._start(["openai"], ["openai/gpt-4o-mini"], {})
+    assert launched == [(5001, 5002)]
+
+
 def test_a_model_name_without_a_rule_restarts_the_gateway_with_one(env, monkeypatch):
     # As LiteLLM sends any name to the provider. The rules it had stay, so two new names settle quickly.
     state = {

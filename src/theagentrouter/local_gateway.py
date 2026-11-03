@@ -1055,6 +1055,8 @@ def _start(providers: list[str], models: list[str], routes: dict | None = None) 
     log_path = home / "aigw.log"
     for attempt in range(START_ATTEMPTS):
         port, admin_port = PORT or _free_port(), ADMIN_PORT or _free_port()
+        while admin_port == port:  # two calls can return the same port, and Envoy's admin page would answer on it
+            admin_port = _free_port()
         try:
             proc = _launch(home, env, log_path, providers, models, routes, port, admin_port)
             break

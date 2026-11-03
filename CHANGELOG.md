@@ -30,6 +30,7 @@ All notable changes to this project are listed here. The format follows [Keep a 
 - OpenAI's "Input tokens exceed the configured limit" raises `ContextWindowExceededError`, as in LiteLLM, instead of `BadRequestError`.
 - A web page can no longer reach the local gateway through DNS rebinding: its `SecurityPolicy` also checks the `Host` header, so a browser sending the page's own name gets 403.
 - A provider address that does not answer from your network no longer fails the call with 503. Bedrock's hostname has many addresses; the gateway now tries the next one, as an HTTP client does.
+- The local gateway no longer starts, rarely, with its admin page on the port the SDK calls, which answered every call with "invalid path".
 - No `ResourceWarning: subprocess N is still running` when a program starts the local gateway.
 - Docs: the Messages API example and the thinking advice for frameworks used a form that Claude 5 models refuse; the Responses API example read the wrong output item on models that reason; running an exported config says where `aigw` comes from.
 
