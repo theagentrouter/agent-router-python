@@ -4,10 +4,20 @@ All notable changes to this project are listed here. The format follows [Keep a 
 
 ## Unreleased
 
+### Added
+
+- `theagentrouter-local-gateway` lists the licences of the Go modules inside `aigw`, in `THIRD_PARTY_NOTICES.txt`.
+- `tokens.py` carries LiteLLM's MIT notice, for the part that follows LiteLLM's token counter.
+
 ### Changed
 
 - The bundled model list now comes from [theagentrouter/agent-router-models](https://github.com/theagentrouter/agent-router-models), the Agent Router project's copy of the list.
-- The bundled model list is refreshed. It adds `openai/gpt-6.1-terra` and seven DeepInfra models, and has new prices or limits for five DeepInfra models and new effort levels for three OpenAI models. Seventeen models are now retired: the ten OpenAI shut down on 2026-10-23, such as `gpt-3.5-turbo` and `o1`, and seven on DeepInfra.
+- The bundled model list is refreshed. It adds `openai/gpt-6.1-terra` and seven DeepInfra models, and has new prices or limits for five DeepInfra models and new effort levels for three OpenAI models. Seventeen models are now retired: the ten OpenAI shut down on 2026-10-23, such as `gpt-3.5-turbo` and `o1`, and seven on DeepInfra. Calls to a retired model fail with the reason, before any request is sent.
+- The documentation is under CC BY 4.0.
+
+### Security
+
+- Packages are published with `pypa/gh-action-pypi-publish` 1.14.3, which no longer trusts the compromised `emSign` root ([GHSA-5xjx-3w67-w9x9](https://github.com/advisories/GHSA-5xjx-3w67-w9x9)).
 
 ## [0.1.0a10] - 2026-11-03
 
