@@ -23,7 +23,7 @@ It never calls a provider itself: every call goes to an Agent Router gateway, th
 | `src/theagentrouter/transport.py` | HTTP with `httpx`, sync and async, streaming, error mapping |
 | `src/theagentrouter/exceptions.py` | LiteLLM's error names; `from_http` maps HTTP errors to them |
 | `src/theagentrouter/types.py` | LiteLLM-shaped response types; readable by attribute and as dicts |
-| `src/theagentrouter/models.py`, `model_catalog.json` | Model prices and limits from tetrateio/agent-router-models (bundled; never fetched at run time) |
+| `src/theagentrouter/models.py`, `model_catalog.json` | Model prices and limits from theagentrouter/agent-router-models (bundled; never fetched at run time) |
 | `src/theagentrouter/compat/` | The LiteLLM-compatible module and `install_as_litellm()` |
 | `surface.txt` | The recorded public surface |
 | `tests/` | Tests against a local fake provider; `test_adk.py` and `test_openai_agents.py` run real Google ADK and OpenAI Agents SDK agents |

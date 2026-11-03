@@ -1,6 +1,6 @@
 """Model details: prices, context windows and capabilities, with LiteLLM's names.
 
-The table is a snapshot of tetrateio/agent-router-models, refreshed with scripts/sync_models.py.
+The table is a snapshot of theagentrouter/agent-router-models, refreshed with scripts/sync_models.py.
 Keys are "provider/model"; lookups also accept a bare model name with custom_llm_provider.
 """
 
@@ -42,7 +42,7 @@ _deprecation_warned: set[str] = set()
 _table = model_cost  # register_model's argument has the same name, as in LiteLLM
 
 
-# --- tetrateio/agent-router-models -------------------------------------------------------------------
+# --- theagentrouter/agent-router-models --------------------------------------------------------------
 
 # Providers whose context window counts the output too: the input limit is the window less the output.
 _WINDOW_HOLDS_OUTPUT = frozenset({"openai"})
@@ -53,7 +53,7 @@ def _per_token(per_million: str | float | None) -> float | None:
 
 
 def _from_catalog_record(record: dict[str, Any]) -> dict[str, Any]:
-    """One model from tetrateio/agent-router-models, in LiteLLM's field names."""
+    """One model from theagentrouter/agent-router-models, in LiteLLM's field names."""
     caps = set(record.get("capabilities") or [])
     metadata = record.get("metadata") or {}
     modal_in = set((record.get("modalities") or {}).get("input") or [])
@@ -94,7 +94,7 @@ def _catalog_key(record: dict[str, Any]) -> str:
 
 
 def lifecycle_from_catalog(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """The deprecated models of a tetrateio/agent-router-models file: retired, or still offered with a date."""
+    """The deprecated models of a theagentrouter/agent-router-models file: retired, or still offered with a date."""
     out: dict[str, dict[str, Any]] = {"retired": {}, "deprecated": {}}
     for record in data.get("models", []):
         metadata = record.get("metadata") or {}
@@ -124,7 +124,7 @@ def warn_if_deprecated(model: str) -> None:
 
 
 def from_catalog(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """A tetrateio/agent-router-models file (``{"version": ..., "models": [...]}``) as LiteLLM's model_cost entries."""
+    """A theagentrouter/agent-router-models file (``{"version": ..., "models": [...]}``) as LiteLLM's model_cost entries."""
     table = {}
     for record in data.get("models", []):
         if record.get("isEnabled") is False:
@@ -141,8 +141,8 @@ def register_model(model_cost: dict[str, Any] | str) -> dict[str, dict[str, Any]
     """LiteLLM's register_model: add models, or change their details, in LiteLLM's format.
 
     ``model_cost`` is a dict of model name to details, or the URL of a JSON file of them, such as
-    LiteLLM's ``model_prices_and_context_window.json``, or a file of tetrateio/agent-router-models
-    (``https://raw.githubusercontent.com/tetrateio/agent-router-models/main/openai.json``). A name without a provider takes it from the
+    LiteLLM's ``model_prices_and_context_window.json``, or a file of theagentrouter/agent-router-models
+    (``https://raw.githubusercontent.com/theagentrouter/agent-router-models/main/openai.json``). A name without a provider takes it from the
     entry's ``litellm_provider``. Entries that are not models (no ``mode``, no prices) are skipped. Registered models get prices and details, a rule in the local
     gateway when it next starts, and a rule in ``local_gateway.export_config()``. They last for this
     program only.
@@ -155,7 +155,7 @@ def register_model(model_cost: dict[str, Any] | str) -> dict[str, dict[str, Any]
         model_cost = response.json()
     if not isinstance(model_cost, dict):
         raise exceptions.BadRequestError("register_model takes a dict of model name to details, or a URL of one")
-    if isinstance(model_cost.get("models"), list):  # a tetrateio/agent-router-models file
+    if isinstance(model_cost.get("models"), list):  # a theagentrouter/agent-router-models file
         for kind, models in lifecycle_from_catalog(model_cost).items():
             lifecycle[kind].update(models)
         model_cost = from_catalog(model_cost)

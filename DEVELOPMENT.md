@@ -139,13 +139,13 @@ Explain the change in the pull request: removing or changing an item breaks code
 
 ## The model table
 
-`src/theagentrouter/model_catalog.json` is a snapshot of the project's model list, [tetrateio/agent-router-models](https://github.com/tetrateio/agent-router-models). Each release ships the snapshot; the SDK never downloads the list while it runs. To add or fix a model, send a pull request to that repository, then refresh the snapshot here:
+`src/theagentrouter/model_catalog.json` is a snapshot of the project's model list, [theagentrouter/agent-router-models](https://github.com/theagentrouter/agent-router-models). Each release ships the snapshot; the SDK never downloads the list while it runs. To add or fix a model, send a pull request to that repository, then refresh the snapshot here:
 
 ```sh
 .venv/bin/python scripts/sync_models.py
 ```
 
-It reads `tetrateio/agent-router-models` by default; `MODELS_REPO=owner/repo` reads another copy. It also writes `src/theagentrouter/model_lifecycle.json`: the models the list marks deprecated, outside `model_cost`, with the list's own reason text.
+It reads `theagentrouter/agent-router-models` by default; `MODELS_REPO=owner/repo` reads another copy. It also writes `src/theagentrouter/model_lifecycle.json`: the models the list marks deprecated, outside `model_cost`, with the list's own reason text.
 
 `.github/workflows/update-models.yml` runs the same script every Monday (or by hand) and opens a pull request when the snapshot changes, listing the models added, removed and changed and the source commit. The list has no tags or releases, so it is checked on a schedule.
 

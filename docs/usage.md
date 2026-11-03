@@ -255,7 +255,7 @@ theagentrouter.supports_function_calling("anthropic/claude-sonnet-5-5")
 theagentrouter.model_cost["openai/gpt-5.4-mini"]           # the raw entry, as in litellm.model_cost
 ```
 
-These read the model list that ships with each release ([tetrateio/agent-router-models](https://github.com/tetrateio/agent-router-models)): OpenAI, Anthropic, Gemini and Groq models, and DeepInfra and xAI models for prices only. It has no Bedrock, Mistral, DeepSeek or Together models. `max_tokens` and `max_output_tokens` are the output limit where the list has one, and `None` where it has not. For OpenAI models without an explicit input limit, `max_input_tokens` is the context window less the output limit, since OpenAI's window includes the output. The SDK never downloads the list while it runs. `get_model_info` raises `NotFoundError` for a model that is not on the list.
+These read the model list that ships with each release ([theagentrouter/agent-router-models](https://github.com/theagentrouter/agent-router-models)): OpenAI, Anthropic, Gemini and Groq models, and DeepInfra and xAI models for prices only. It has no Bedrock, Mistral, DeepSeek or Together models. `max_tokens` and `max_output_tokens` are the output limit where the list has one, and `None` where it has not. For OpenAI models without an explicit input limit, `max_input_tokens` is the context window less the output limit, since OpenAI's window includes the output. The SDK never downloads the list while it runs. `get_model_info` raises `NotFoundError` for a model that is not on the list.
 
 The list also marks models deprecated. A model it still offers has a `deprecation_date` (the date it retires, LiteLLM's name for it), and the first call to it in a program warns with the list's reason, such as `anthropic/claude-sonnet-4-5 is deprecated and retires on 2026-11-30: replaced by claude-sonnet-5-5`. A model it no longer offers is not served by the local gateway: a call raises `NotFoundError` with the reason, such as `deepinfra/Qwen/Qwen3-Max is no longer offered: Retired on DeepInfra on 2026-10-10. Replacement: Qwen/Qwen3.8-Max.` A gateway you set decides for itself.
 
@@ -272,7 +272,7 @@ theagentrouter.register_model({
 theagentrouter.register_model("https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json")
 
 # Or a newer copy of the list this SDK ships, one file per provider:
-theagentrouter.register_model("https://raw.githubusercontent.com/tetrateio/agent-router-models/main/openai.json")
+theagentrouter.register_model("https://raw.githubusercontent.com/theagentrouter/agent-router-models/main/openai.json")
 ```
 
 A registered model gets prices and details, a rule in the local gateway when it next starts, and a rule in `local_gateway.export_config()`. Registrations last for the program that makes them.

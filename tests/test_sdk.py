@@ -287,7 +287,7 @@ def test_register_model_as_in_litellm(monkeypatch, tmp_path):
         assert 'value: "openai/acme-tuned"' in local_gateway.export_config(providers=["openai"])
         with pytest.raises(exceptions.BadRequestError, match="has no provider"):
             theagentrouter.register_model({"acme-9": {"mode": "chat", "input_cost_per_token": 1e-6}})
-        # A file of tetrateio/agent-router-models, converted as the bundled list is.
+        # A file of theagentrouter/agent-router-models, converted as the bundled list is.
         theagentrouter.register_model(
             {
                 "version": "1.0",

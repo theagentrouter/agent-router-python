@@ -2,6 +2,13 @@
 
 All notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Changed
+
+- The bundled model list now comes from [theagentrouter/agent-router-models](https://github.com/theagentrouter/agent-router-models), the Agent Router project's copy of the list.
+- The bundled model list is refreshed. It adds `openai/gpt-6.1-terra` and seven DeepInfra models, and has new prices or limits for five DeepInfra models and new effort levels for three OpenAI models. Seventeen models are now retired: the ten OpenAI shut down on 2026-10-23, such as `gpt-3.5-turbo` and `o1`, and seven on DeepInfra.
+
 ## [0.1.0a10] - 2026-11-03
 
 ### Fixed

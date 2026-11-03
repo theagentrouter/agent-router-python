@@ -1,4 +1,4 @@
-"""Refresh the bundled model table from tetrateio/agent-router-models.
+"""Refresh the bundled model table from theagentrouter/agent-router-models.
 
     python3 scripts/sync_models.py
 
@@ -18,7 +18,7 @@ import httpx
 
 from theagentrouter.models import from_catalog, lifecycle_from_catalog
 
-REPO = os.environ.get("MODELS_REPO", "tetrateio/agent-router-models")
+REPO = os.environ.get("MODELS_REPO", "theagentrouter/agent-router-models")
 SOURCE = "https://raw.githubusercontent.com/" + REPO + "/main/{name}.json"
 CATALOGS = ["openai", "anthropic", "gemini", "groq", "xai", "deepinfra"]
 OUT = Path(__file__).resolve().parent.parent / "src" / "theagentrouter" / "model_catalog.json"
