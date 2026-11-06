@@ -68,8 +68,8 @@ def _hidden(model: str, usage: Usage) -> dict[str, Any]:
         "llm_provider": _provider(model),
         "model_sent": model,
         "model_key": key,
-        "response_cost": models.completion_cost(
-            model=key, prompt_tokens=usage.prompt_tokens, completion_tokens=usage.completion_tokens
+        "response_cost": models._response_cost(
+            key, prompt_tokens=usage.prompt_tokens, completion_tokens=usage.completion_tokens
         ),
     }
 

@@ -551,7 +551,7 @@ def export_config(
     bare = sorted(m for m in extra if "/" not in m)
     if bare:
         raise exceptions.BadRequestError(f"models need their provider, for example openai/{bare[0]}")
-    current = routes_mod.list_routes()
+    current = _as_called(routes_mod.list_routes())
     used = {m.split("/", 1)[0] for r in current.values() for m in r.models} | {m.split("/", 1)[0] for m in extra}
     outside = sorted(used - set(chosen))
     if outside:
@@ -566,6 +566,25 @@ def export_config(
             raise ValueError("api_key_env must be an environment variable name")
         config += "---\n" + _api_key_config(api_key_env)
     return config
+
+
+def _as_called(current: dict) -> dict:
+    """Routes under the names code calls them by: a LiteLLM Router's ``router-1a2b3c4d:chat`` becomes ``chat``."""
+    import dataclasses
+
+    out: dict = {}
+    origin: dict[str, str] = {}
+    for name, r in sorted(current.items()):
+        group = re.fullmatch(r"router-[0-9a-f]{8}:(.+)", name)
+        called = group.group(1) if group else name
+        if called in out:
+            raise exceptions.BadRequestError(
+                f"routes {origin[called]!r} and {name!r} would both be {called!r} in the config; "
+                "remove one with theagentrouter.remove_route()"
+            )
+        out[called] = dataclasses.replace(r, name=called)
+        origin[called] = name
+    return out
 
 
 def _api_key_config(variable: str) -> str:
@@ -618,7 +637,8 @@ def _route_docs(r) -> list[str]:
     name = _k8s_name(r.name)
     refs = []
     for priority, tier in enumerate(r.tiers):
-        for model in tier:
+        for index, model in enumerate(tier):
+            weight = r.weights[priority][index] if r.weights else 1
             backend, own = _route_backend(model)
             removed = []
             if model.startswith("anthropic/") and _refuses_sampling(own):
@@ -633,7 +653,7 @@ def _route_docs(r) -> list[str]:
           namespace: default
           modelNameOverride: {json.dumps(own)}
           priority: {priority}
-          weight: 1{mutation}"""
+          weight: {weight}{mutation}"""
             )
     docs = [
         f"""apiVersion: aigateway.envoyproxy.io/v1beta1

@@ -96,7 +96,7 @@ Here a call to `chat` goes to `openai/gpt-5.4`. If it cannot be reached or answe
 
 - A route can also limit requests: `limit=ar.Limit(60, per="minute")` lets 60 requests a minute through and answers the rest with a `RateLimitError`.
 - Routes are saved in `~/.agentrouter/routes.json`, so every program on this computer can use them.
-- Routes work with the local gateway only. With `AGENTROUTER_BASE_URL` set, set up fallbacks on that gateway instead.
+- Routes defined in code set up the local gateway. With `AGENTROUTER_BASE_URL` set, the same code runs, and that gateway's route of the same name applies; `local_gateway.export_config()` gives it this computer's routes.
 - `Router` from `theagentrouter.compat.litellm`, with LiteLLM's `fallbacks` and `num_retries`, is turned into routes.
 
 Details: [Routes](docs/usage.md#routes-fallbacks-retries-and-names-of-your-own).

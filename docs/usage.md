@@ -51,7 +51,7 @@ For Azure OpenAI, the name after `azure/` is your deployment's name: `azure/gpt-
 
 `api_key=` on a call is used in two cases: with `api_base=`, as the key for that endpoint, and with a gateway you set, as that gateway's key. With the local gateway it has no effect and warns once, because the local gateway reads provider keys from the environment when it starts.
 
-To send one call to an endpoint you name, in the provider's own format, use `api_base=` (LiteLLM's argument), for example a local test server.
+To send one call to an endpoint you name, in the provider's own format, use `api_base=` (LiteLLM's argument), for example a local test server. The call goes there in place of the gateway, as in LiteLLM, so routes, fallbacks and limits apply only if that address is an Agent Router gateway that has them; the SDK warns once for each address.
 
 ## Parameters
 
@@ -93,7 +93,7 @@ These control the call itself:
 | Parameter | What it does |
 |---|---|
 | `api_key` | The key for `api_base`, or for a gateway you set. Ignored, with a warning, for the local gateway |
-| `api_base` | Send this call to this address instead, in the provider's own format |
+| `api_base` | Send this call to this address instead of the gateway, in the provider's own format. Warns once per address |
 | `timeout` | Seconds before giving up; the default is 600, as in LiteLLM |
 | `extra_headers` | More HTTP headers on the request |
 | `extra_body` | More fields in the request body, for provider-specific options |
@@ -213,7 +213,7 @@ resp.to_dict()
 | `sent_to` | `http://127.0.0.1:52413/anthropic/v1/messages`: the address the SDK sent the request to, here the local gateway |
 | `llm_provider` | `anthropic` |
 | `model_sent` | `anthropic/claude-sonnet-5-5`: the model name in the request, as you wrote it. The gateway passes the provider its own name |
-| `response_cost` | `0.000123`, in US dollars, from the model list. `completion_cost(resp)` gives the same |
+| `response_cost` | `0.000123`, in US dollars, from the model list. `completion_cost(resp)` gives the same. `None` when the model has no known price, such as a route name on a gateway you set, as in LiteLLM; `completion_cost(resp)` then warns and returns 0 |
 | `served_by`, `route_name` | For a route: the model that answered, and the route's name |
 
 ## Errors
@@ -350,7 +350,7 @@ export AGENTROUTER_BASE_URL=https://gateway.acme.example/v1
 export AGENTROUTER_API_KEY=...      # the gateway's key, not a provider's
 ```
 
-Set the gateway's address with or without the `/v1` that OpenAI clients add; the SDK adds the paths above. Every call goes there and the local gateway never starts. Provider keys stay on the gateway, so this computer needs none. The key goes as `Authorization: Bearer` on OpenAI-format calls and as `x-api-key` on Claude calls, as Anthropic's own clients send it. Routes belong to the local gateway: see [Routes and a gateway you set](#routes-and-a-gateway-you-set).
+Set the gateway's address with or without the `/v1` that OpenAI clients add; the SDK adds the paths above. Every call goes there and the local gateway never starts. Provider keys stay on the gateway, so this computer needs none. The key goes as `Authorization: Bearer` on OpenAI-format calls and as `x-api-key` on Claude calls, as Anthropic's own clients send it. Routes defined in code set up the local gateway; that gateway uses its own routes of the same name: see [Routes and a gateway you set](#routes-and-a-gateway-you-set).
 
 ### The local gateway
 
@@ -402,7 +402,7 @@ The local gateway does the retries and the fallbacks, as Agent Router Enterprise
 
 - **Retry:** the gateway tries each tier `attempts` more times on the listed status codes and on connection failures, with `backoff` seconds before the first retry, doubling up to 10 seconds, and an optional per-try `timeout`.
 - **Fallback:** when a tier still fails with one of those codes, or cannot be reached, the gateway moves to the next tier. A stream falls back only before its reply starts.
-- **Sharing:** `primary=["openai/gpt-5.4", "openai/gpt-5.4-mini"]` puts two models in one tier, which share the traffic. A fallback can be a list too.
+- **Sharing:** `primary=["openai/gpt-5.4", "openai/gpt-5.4-mini"]` puts two models in one tier, which share the traffic equally. A fallback can be a list too. LiteLLM's `Router` shares a group by `weight`, `rpm` or `tpm`, as LiteLLM does: see [Coming from LiteLLM](coming-from-litellm.md).
 - `served_by` is read from the model name in the reply, so it is missing when a provider answers with a name that does not start with the model's own.
 - Routes are kept in `~/.agentrouter/routes.json` and shared by every program on the computer, like the local gateway. Defining a route again replaces it; `ar.list_routes()` and `ar.remove_route(name)` list and remove them.
 - A route can take a model's name, such as `openai/gpt-5.4` or `gpt-5.4`, as a group in the LiteLLM proxy's model list can. Every program's calls to that model then go through the route.
@@ -437,17 +437,18 @@ What the file holds:
 
 - **Providers:** those whose keys are set on your computer, or the ones you name: `export_config(providers=["openai", "anthropic"])`.
 - **Models:** a rule for every model in the SDK's bundled model list for those providers, with and without the provider in the name, plus any you added with `register_model`. **The server serves only these.** The bundled list has no Bedrock, Mistral, DeepSeek or Together models, so for those providers name the models (`export_config(models=["mistral/mistral-large-latest"])`) or register LiteLLM's list first (see [Adding models](#adding-models)). Export again when the models change.
-- **Routes:** the routes defined on your computer, with their fallbacks, retries and limits. A client cannot see which models are behind a route's name, so `max_tokens` goes as written. If an OpenAI model refuses it, the SDK makes the call once more with `max_completion_tokens`. Pass `max_completion_tokens` yourself to save that extra request. A route name shaped like a Claude model, such as `claude-chat-5`, goes to the gateway as Claude, so use another name for a route.
+- **Routes:** the routes defined on your computer, with their fallbacks, retries and limits, under the names code calls them by: a LiteLLM `Router` group's route is named after the group, `chat`, not `router-1a2b3c4d:chat`. Two routes that would get the same name raise `BadRequestError`; remove one with `ar.remove_route()`. A client cannot see which models are behind a route's name, so `max_tokens` goes as written. If an OpenAI model refuses it, the SDK makes the call once more with `max_completion_tokens`. Pass `max_completion_tokens` yourself to save that extra request. A route name shaped like a Claude model, such as `claude-chat-5`, goes to the gateway as Claude, so use another name for a route.
 - **No key values:** only references such as `${OPENAI_API_KEY}`, which `aigw` fills in from the server's environment.
 
-Exported configurations require a client key by default. Set `AGENTROUTER_API_KEY` on the server and on each client. The gateway accepts `Authorization: Bearer <key>` or `x-api-key: <key>`, refuses a missing or wrong key with 403, and removes the client key before forwarding. A server started without `AGENTROUTER_API_KEY` refuses every request. `export_config(authentication=False)` explicitly exports an open endpoint. Terminate TLS in front of the server when callers use an untrusted network.
+Exported configurations require a client key by default. Set `AGENTROUTER_API_KEY` on the server and on each client. The gateway accepts `Authorization: Bearer <key>` or `x-api-key: <key>`, refuses a missing or wrong key with 403, and removes the client key before forwarding. A server started without `AGENTROUTER_API_KEY` refuses every request. The SDK raises that refusal as `PermissionDeniedError`, and its message names `AGENTROUTER_API_KEY` on both sides. `export_config(authentication=False)` explicitly exports an open endpoint. Terminate TLS in front of the server when callers use an untrusted network.
 
 #### Routes and a gateway you set
 
-Routes program the local gateway only. With `AGENTROUTER_BASE_URL` set:
+Routes defined in code set up the local gateway only. With `AGENTROUTER_BASE_URL` set, the same code runs unchanged:
 
-- `route()` refuses to define a route, and says to set up fallbacks on that gateway instead.
-- A route defined earlier is not used: its name goes to that gateway as a plain model name, and the SDK warns once. That gateway's own routes and fallbacks apply.
+- `route()` and LiteLLM's `Router` set up nothing on this computer and write nothing to `routes.json`.
+- A call to a route sends its name to that gateway, and the SDK warns once. That gateway's own route of that name, with its fallbacks, retries and limit, applies. A `Router` sends the group name, `chat`.
+- A gateway made with `export_config()` has this computer's routes under those names, so code tested against the local gateway calls the same routes there.
 
 ## Settings
 

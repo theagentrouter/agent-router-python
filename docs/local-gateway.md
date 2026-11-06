@@ -22,7 +22,7 @@ The macOS arm64 wheel is about 80 MB compressed (the program itself is 281 MB). 
 
 `routing.resolve`, first match wins:
 
-1. `api_base` on the call: that endpoint, in the provider's own format (LiteLLM's argument).
+1. `api_base` on the call: that endpoint, in the provider's own format (LiteLLM's argument). It skips the gateway, so it warns once per address.
 2. A gateway set with `AGENTROUTER_BASE_URL` (or `config.json`).
 3. A route name: the local gateway's route for it. The running gateway is used only if it has this computer's current routes (`routes_fingerprint` in `state.json`); otherwise it restarts. With `AGENTROUTER_AUTOSTART=0`, a running gateway that already has the route is still used.
 4. Anything else: the running local gateway, if it has a rule for this name and the name was not a route when it started (`local_gateway.serves`). Otherwise, if the package is installed and `AGENTROUTER_AUTOSTART` is not `0`, the gateway is started with this model, or restarted with a rule for it, as LiteLLM sends any name to the provider. With no package or no autostart, an error says to set `AGENTROUTER_BASE_URL`. An `api_key=` here cannot reach the provider (the gateway holds the keys), so it warns once.

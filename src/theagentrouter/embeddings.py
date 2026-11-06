@@ -86,7 +86,7 @@ def _parse(target: routing.Target, data: dict[str, Any], url: str) -> EmbeddingR
         if served:
             resp._hidden_params["served_by"] = served
             resp._hidden_params["model_key"] = key = served
-    resp._hidden_params["response_cost"] = models.completion_cost(model=key, prompt_tokens=prompt)
+    resp._hidden_params["response_cost"] = models._response_cost(key, prompt_tokens=prompt)
     return resp
 
 

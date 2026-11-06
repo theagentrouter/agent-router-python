@@ -32,7 +32,8 @@ A full example: [`examples/from_litellm/change_the_import.py`](../examples/from_
 | `stream=True` | Same chunks, with `usage` on the last one |
 | `tools`, `tool_choice`, `parallel_tool_calls` | OpenAI-shaped inputs, translated for Anthropic too; `parallel_tool_calls=False` disables parallel Anthropic tool calls |
 | `response_format`, `temperature`, `max_tokens` and the other OpenAI parameters | Passed through for OpenAI Chat Completions. Unsupported Anthropic options raise `UnsupportedParamsError` ([the full list](usage.md#parameters)) |
-| `api_base`, `timeout`, `extra_headers`, `extra_body` | Same |
+| `api_base` | Same: the call goes to that address in place of the gateway, so routes, fallbacks and limits apply only if it is an Agent Router gateway that has them. Warns once per address. Remove an `api_base` that points at a provider to call through the gateway |
+| `timeout`, `extra_headers`, `extra_body` | Same |
 | `num_retries`, `max_retries` | Bounded request retries before response/stream output; a partially consumed completion stream is never replayed. Default is zero. Route retries remain gateway settings |
 | Module `api_base`, `api_key`, `request_timeout`, `num_retries` | Defaults for completion, embeddings and Responses calls; per-call values win. `modify_params=True` warns because message rewriting is unsupported |
 | `api_key` | Used with `api_base`, or as the key of a gateway you set. With the local gateway it is ignored with a warning: the gateway reads provider keys from the environment ([Models and keys](usage.md#models-and-keys)) |
@@ -48,7 +49,7 @@ A full example: [`examples/from_litellm/change_the_import.py`](../examples/from_
 | `drop_params`, `additional_drop_params` | Same, on the call or on the module, off by default: with it, Claude drops the parameters it does not take (`seed`, `presence_penalty` and others, and on newer models `temperature` and `top_p`) instead of raising, and a forced tool call becomes `auto` on the models that refuse one ([the full list](usage.md#parameters)). `n=1` is always fine |
 | `set_verbose`, `suppress_debug_info` | Accepted |
 | Response types under `litellm.types.utils` (`ModelResponse`, `Choices`, `Message`, `Usage` and others) | Same names |
-| `Router` | For `model_list`, `fallbacks` and `num_retries`: the groups become routes in the local gateway, which does the retries and fallbacks. Each route is named after its group and its definition (`router-1a2b3c4d:chat`), so programs with a group of the same name keep their own routes, and a group named after a model does not take over that model in other programs. Call the Router's methods with the group name. A new definition of a group removes the route an earlier one left, and a program still using that route adds it back on its next call. Any change restarts the shared gateway on the next call. Deployments with one `model_name` share its traffic; keys come from the environment. Other `Router` options warn and are ignored. See [Routes](usage.md#routes-fallbacks-retries-and-names-of-your-own) |
+| `Router` | For `model_list`, `fallbacks` and `num_retries`: the groups become routes in the local gateway, which does the retries and fallbacks. Each route is named after its group and its definition (`router-1a2b3c4d:chat`), so programs with a group of the same name keep their own routes, and a group named after a model does not take over that model in other programs. Call the Router's methods with the group name. A new definition of a group removes the route an earlier one left, and a program still using that route adds it back on its next call. Any change restarts the shared gateway on the next call. Deployments with one `model_name` share its traffic as LiteLLM's default `simple-shuffle` shares it: by `weight`, `rpm` or `tpm` in `litellm_params`, the first that any deployment sets, and equally when none does. Keys come from the environment. Other `Router` options warn and are ignored, and so do other `litellm_params`, such as `api_base` (see below). With `AGENTROUTER_BASE_URL` set, nothing is set up on this computer: calls send the group name, `chat`, and that gateway's route of that name applies. `export_config()` names each group's route `chat` too. See [Routes](usage.md#routes-fallbacks-retries-and-names-of-your-own) |
 
 ## What is missing
 
@@ -72,6 +73,14 @@ These `completion` arguments work in LiteLLM but do nothing in theagentrouter. C
 | `metadata`, `tags`, `callbacks`, `logger_fn` (as arguments on one call) | The gateway's request logs record calls; for callbacks, set the module's lists ([Callbacks](usage.md#callbacks)) |
 | `custom_llm_provider` | Name the provider in the model, for example `openai/gpt-5.4-mini` |
 | `api_version` | Set `AZURE_API_VERSION` where the gateway starts |
+
+`Router` warns in the same way, once for each `Router`, for what it does not use:
+
+| `Router` setting | Instead |
+|---|---|
+| `routing_strategy` other than `simple-shuffle` | The gateway shares a group's traffic as `simple-shuffle` does. LiteLLM's usage-based strategies also hold each deployment to its `rpm` and `tpm`; with the default strategy LiteLLM does not, and neither does the SDK. For a request limit, define a route with `limit=Limit(...)`; it counts requests per route, not tokens |
+| `api_base`, `api_version` in `litellm_params` | Set the provider's address where the gateway starts, such as `AZURE_API_BASE`. `os.environ/AZURE_API_BASE` and `os.environ/AZURE_API_VERSION` do not warn |
+| Other `litellm_params`, such as `timeout` | Not used |
 
 A value that asks for nothing does not warn. Other unknown completion arguments warn instead of disappearing silently.
 

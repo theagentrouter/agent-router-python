@@ -456,6 +456,13 @@ def test_success_callback_runs_after_a_stream(base):
     assert [type(r).__name__ for r in seen if type(r).__name__ == "ModelResponse"] == ["ModelResponse"]
 
 
+def test_router_does_not_hold_a_deployment_to_rpm_by_default():
+    # LiteLLM's default simple-shuffle uses rpm as a traffic share; only its usage-based strategies limit by it.
+    router = litellm.Router(model_list=[{"model_name": "chat", "litellm_params": {"model": OPENAI, "rpm": 1}}])
+    replies = [router.completion(model="chat", messages=HELLO, mock_response="ok") for _ in range(3)]
+    assert [r.choices[0].message.content for r in replies] == ["ok"] * 3
+
+
 def test_mock_response():
     resp = litellm.completion(model=OPENAI, messages=HELLO, mock_response="Offline reply")
     assert resp.choices[0].message.content == "Offline reply"

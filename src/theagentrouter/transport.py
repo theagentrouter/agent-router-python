@@ -201,9 +201,9 @@ def _parse(target: routing.Target, data: dict[str, Any], model: str) -> ModelRes
             resp._hidden_params["served_by"] = served
             resp._hidden_params["model_key"] = served
     # From the bundled table; a gateway that reports cost would override this.
-    resp._hidden_params["response_cost"] = models.completion_cost(
+    resp._hidden_params["response_cost"] = models._response_cost(
+        resp._hidden_params["model_key"],
         completion_response=resp,
-        model=resp._hidden_params["model_key"],
         prompt_tokens=resp.usage.prompt_tokens,
         completion_tokens=resp.usage.completion_tokens,
     )
@@ -212,7 +212,11 @@ def _parse(target: routing.Target, data: dict[str, Any], model: str) -> ModelRes
 
 def _raise_for(response: httpx.Response, text: str, target: routing.Target, model: str) -> None:
     if response.status_code >= 300:
-        error = exceptions.from_http(response.status_code, text, model, target.provider)
+        explained = routing._explain_refusal(response.status_code, text, target)
+        # The gateway's own refusal is not the provider's, so no provider name goes in front of the message.
+        prefix = None if explained != text else target.provider
+        error = exceptions.from_http(response.status_code, explained, model, prefix)
+        error.llm_provider = target.provider
         error.response = response
         error.headers = response.headers
         error.request = response.request

@@ -358,6 +358,107 @@ def test_litellm_only_arguments_warn_once_and_are_not_sent(fake, monkeypatch):
         theagentrouter.completion(model="openai/gpt-4o-mini", messages=HELLO, api_base=fake.url, fallbacks=[])
 
 
+def test_api_base_says_once_that_the_call_skips_the_gateway(fake, monkeypatch):
+    from theagentrouter import routing
+
+    monkeypatch.setattr(routing, "_api_base_warned", set())
+    monkeypatch.setenv("AGENTROUTER_BASE_URL", "https://gw.acme.example/v1")  # api_base still comes first
+    with pytest.warns(
+        UserWarning, match=r"api_base= sends these calls to .* in place of the gateway in AGENTROUTER_BASE_URL"
+    ):
+        r = theagentrouter.completion(model="openai/gpt-4o-mini", messages=HELLO, api_base=fake.url)
+    assert r._hidden_params["route"] == "api_base"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # the same address again: said once
+        theagentrouter.completion(model="openai/gpt-4o-mini", messages=HELLO, api_base=fake.url)
+
+
+def test_api_base_naming_the_gateway_already_set_says_nothing(fake, monkeypatch):
+    from theagentrouter import routing
+
+    monkeypatch.setattr(routing, "_api_base_warned", set())
+    monkeypatch.setenv("AGENTROUTER_BASE_URL", fake.url)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        theagentrouter.completion(model="openai/gpt-4o-mini", messages=HELLO, api_base=fake.url + "/")
+
+
+def test_a_gateway_refusing_the_client_key_names_the_setting():
+    from dataclasses import replace
+
+    from theagentrouter import routing
+
+    target = routing.Target(
+        route="gateway",
+        format=routing.OPENAI,
+        base_url="https://gw.acme.example/v1",
+        api_key=None,
+        model="chat",
+        provider="openai",
+    )
+    # Envoy refuses in plain text; the error says which setting to look at, and whether a key was sent.
+    unkeyed = routing._explain_refusal(403, "RBAC: access denied", target)
+    assert unkeyed.startswith("RBAC: access denied") and "no client key was sent: set AGENTROUTER_API_KEY" in unkeyed
+    keyed = replace(target, api_key="wrong")
+    said = routing._explain_refusal(403, "RBAC: access denied", keyed)
+    # Envoy gives the same 403 for other access rules, so the key is a possible cause, not a verdict.
+    assert "If that gateway checks a client key, AGENTROUTER_API_KEY may not be the key it expects" in said
+    assert "AGENTROUTER_API_KEY on its server" in said
+    error = exceptions.from_http(403, said, "chat", "openai")
+    assert isinstance(error, exceptions.PermissionDeniedError) and "AGENTROUTER_API_KEY" in str(error)
+    # A provider's own 403 passed on as JSON, another status, or another route: left as it is.
+    body = '{"error": {"message": "Project does not have access to model"}}'
+    assert routing._explain_refusal(403, body, keyed) == body
+    assert routing._explain_refusal(401, "nope", keyed) == "nope"
+    assert routing._explain_refusal(403, "nope", replace(target, route="local gateway")) == "nope"
+
+
+def test_a_gateway_refusal_does_not_carry_the_provider_name():
+    import httpx
+
+    from theagentrouter import routing, transport
+
+    target = routing.Target(
+        route="gateway",
+        format=routing.ANTHROPIC,
+        base_url="https://gw.acme.example/anthropic/v1",
+        api_key="wrong",
+        model="claude-sonnet-5-5",
+        provider="anthropic",
+    )
+    request = httpx.Request("POST", "https://gw.acme.example/anthropic/v1/messages")
+    with pytest.raises(exceptions.PermissionDeniedError) as refused:
+        transport._raise_for(
+            httpx.Response(403, text="RBAC: access denied", request=request),
+            "RBAC: access denied",
+            target,
+            "claude-sonnet-5-5",
+        )
+    # The gateway refused the key, not Anthropic: no "anthropic:" in front, but the error still says which provider.
+    assert refused.value.message.startswith("RBAC: access denied (") and refused.value.llm_provider == "anthropic"
+    # Anthropic's own 403, passed on by the gateway as JSON, keeps the provider name.
+    body = '{"type": "error", "error": {"type": "permission_error", "message": "Not allowed"}}'
+    with pytest.raises(exceptions.PermissionDeniedError) as provider_said:
+        transport._raise_for(httpx.Response(403, text=body, request=request), body, target, "claude-sonnet-5-5")
+    assert provider_said.value.message.startswith("anthropic: ")
+
+
+def test_a_call_to_a_model_without_a_price_reports_no_cost_and_says_nothing(fake, monkeypatch):
+    # As in LiteLLM: a call's cost is left empty, with no warning, when the model has no known price,
+    # such as a route name on a gateway you set.
+    from theagentrouter import models
+
+    monkeypatch.setattr(models, "_unknown_prices", set())
+    monkeypatch.setenv("AGENTROUTER_BASE_URL", fake.url)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        r = theagentrouter.completion(model="chat", messages=HELLO)
+    assert r._hidden_params["response_cost"] is None
+    # Asked directly, completion_cost() still says so and reports 0.
+    with pytest.warns(UserWarning, match="No price is known"):
+        assert theagentrouter.completion_cost(r) == 0
+
+
 def test_a_set_gateway_takes_its_own_model_names(fake, monkeypatch):
     monkeypatch.setenv("AGENTROUTER_BASE_URL", fake.url)
     r = theagentrouter.completion(model="claude-sonnet-5", messages=HELLO)

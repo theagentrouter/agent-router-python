@@ -10,6 +10,11 @@ gateway route with its models at priority 0, 1, ..., as Agent Router Enterprise 
 kept in ``AGENTROUTER_HOME/routes.json`` because the local gateway is shared by every program on
 the computer, so its routes are too. Defining a route again replaces it, and the
 gateway restarts with the change on the next call that needs it.
+
+With a gateway set (``AGENTROUTER_BASE_URL``), defining a route sets up nothing: calls send the
+route's name to that gateway, and its route of the same name applies. ``export_config()`` writes a
+gateway config with this computer's routes under the names code calls them by, so the same code runs
+against both.
 """
 
 from __future__ import annotations
@@ -111,12 +116,16 @@ class Route:
     """A name of your own, and the models behind it in order: tiers[0] first, then each fallback.
 
     Models in one tier share the traffic between them; the next tier is used when they fail.
+    weights: one whole number per model, in the shape of tiers, for how a tier's traffic is shared
+    (LiteLLM's Router sets them from weight, rpm or tpm); empty means an equal share. A model with 0
+    gets no traffic.
     """
 
     name: str
     tiers: tuple[tuple[str, ...], ...]
     retry: Retry = field(default_factory=Retry)
     limit: Limit | None = None
+    weights: tuple[tuple[int, ...], ...] = ()
 
     @property
     def primary(self) -> str:
@@ -147,6 +156,7 @@ def _load() -> dict[str, Route]:
                 tuple(tuple(t) for t in r["tiers"]),
                 Retry(**{**retry, "on": tuple(retry.get("on", RETRY_ON))}),
                 Limit(**limit) if limit else None,
+                tuple(tuple(t) for t in r.get("weights") or ()),
             )
         except (ValueError, TypeError, KeyError):
             warnings.warn(
@@ -158,14 +168,16 @@ def _load() -> dict[str, Route]:
 
 
 def _dump(routes: dict[str, Route]) -> dict:
-    return {
-        n: {
+    out = {}
+    for n, r in sorted(routes.items()):
+        out[n] = {
             "tiers": [list(t) for t in r.tiers],
             "retry": asdict(r.retry),
             "limit": asdict(r.limit) if r.limit else None,
         }
-        for n, r in sorted(routes.items())
-    }
+        if r.weights:  # only when set, so routes saved without weights read the same
+            out[n]["weights"] = [list(t) for t in r.weights]
+    return out
 
 
 def _save(routes: dict[str, Route]) -> None:
@@ -214,19 +226,24 @@ def _tier(value: str | list[str] | tuple[str, ...]) -> tuple[str, ...]:
     return models
 
 
-def _check(name: str, tiers: tuple[tuple[str, ...], ...]) -> None:
+# Routes defined while a gateway is set. Nothing is set up for them on this computer; they are kept so
+# a call to one can say that the gateway's route of that name applies.
+_for_gateway: dict[str, Route] = {}
+
+
+def defined_for_gateway(name: str) -> bool:
+    """Whether this program defined a route by this name while a gateway was set."""
+    return name in _for_gateway
+
+
+def _check(name: str, tiers: tuple[tuple[str, ...], ...], *, local: bool = True) -> None:
     """Fail now, with the fix in the message, rather than on the first call."""
     from . import local_gateway
-    from .routing import settings
 
     if not name or name != name.strip():
         raise exceptions.BadRequestError(f"route name {name!r} must be a non-empty name without spaces at the ends")
-    gateway = settings().get("base_url")
-    if gateway:
-        raise exceptions.BadRequestError(
-            f"routes are served by the local gateway, and AGENTROUTER_BASE_URL sends calls to {gateway}. "
-            "Set up fallbacks in that gateway instead, or unset AGENTROUTER_BASE_URL."
-        )
+    if not local:  # the gateway you set owns its model names and providers
+        return
     for model in (m for tier in tiers for m in tier):
         provider, sep, own = model.partition("/")
         if not sep or not own:
@@ -248,16 +265,36 @@ def route(
 ) -> Route:
     """Define (or replace) a route: call it with completion(model=name, ...).
 
+    With AGENTROUTER_BASE_URL set, nothing is set up here: calls send the name to that gateway, and
+    its route of the same name applies.
+
     primary: a provider/model name, or a list of them that share the traffic.
     fallbacks: tried in order when the primary fails; each item a model or a list of them.
     retry: how many times each model is retried first, and on which errors. Default: Retry().
     limit: at most this many requests to the route in a period, for example Limit(60, per="minute").
     """
     tiers = (_tier(primary), *(_tier(f) for f in fallbacks or []))
-    _check(name, tiers)
-    new = Route(name, tiers, retry or Retry(), limit)
+    return _define(Route(name, tiers, retry or Retry(), limit))
+
+
+def _define(new: Route) -> Route:
+    """Check and save a route; LiteLLM's Router uses this too, for routes with weights."""
+    from .routing import settings
+
+    name, tiers = new.name, new.tiers
+    gateway = settings().get("base_url")
+    _check(name, tiers, local=not gateway)
+    if new.weights and (
+        len(new.weights) != len(tiers)
+        or any(len(w) != len(t) or any(x < 0 for x in w) for w, t in zip(new.weights, tiers, strict=False))
+    ):
+        raise ValueError("route weights need one whole number of 0 or more for each model, tier by tier")
     if (new.retry.attempts + 1) * len(tiers) - 1 >= 2**32:
         raise ValueError("the total retries across route tiers must fit an unsigned 32-bit integer")
+    if gateway:
+        # The same code runs on a laptop and against a shared gateway: here the gateway's route applies.
+        _for_gateway[name] = new
+        return new
     with _editing():
         routes = _load()
         old = routes.get(name)
