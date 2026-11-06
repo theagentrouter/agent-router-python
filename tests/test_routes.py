@@ -85,10 +85,85 @@ def test_route_can_be_defined_for_export_without_a_local_gateway_or_keys(env, mo
         ar.completion(model="chat", messages=HELLO)
 
 
-def test_route_refuses_when_a_gateway_is_set(env, installed, monkeypatch):
-    monkeypatch.setenv("AGENTROUTER_BASE_URL", "https://gw.acme.example/v1")
-    with pytest.raises(exceptions.BadRequestError, match="Set up fallbacks in that gateway"):
-        ar.route("chat", primary="openai/gpt-4o")
+@pytest.fixture
+def gateway_set(env, monkeypatch):
+    """A gateway set with AGENTROUTER_BASE_URL, at the fake provider; nothing remembered from other tests."""
+    from theagentrouter import routing
+
+    from .fake_provider import FakeProvider
+
+    server = FakeProvider()
+    monkeypatch.setenv("AGENTROUTER_BASE_URL", server.url)
+    monkeypatch.setenv("AGENTROUTER_AUTOSTART", "0")
+    monkeypatch.setattr(routing, "_route_warned", set())
+    monkeypatch.setattr(routes, "_for_gateway", {})
+    yield server
+    server.close()
+
+
+def test_a_route_defined_with_a_gateway_set_is_called_by_name_there(env, gateway_set):
+    # The same code as on a laptop: no error, nothing set up here, and the gateway's route of that name applies.
+    r = ar.route("chat", primary="openai/gpt-4o", fallbacks=["anthropic/claude-sonnet-4-5"])
+    assert r.name == "chat" and r.tiers == (("openai/gpt-4o",), ("anthropic/claude-sonnet-4-5",))
+    assert ar.list_routes() == {} and not (env / "routes.json").exists()
+    with pytest.warns(UserWarning, match="route 'chat' is defined in Python.*that gateway's own routes"):
+        resp = ar.completion(model="chat", messages=HELLO)
+    assert resp._hidden_params["route"] == "gateway" and gateway_set.requests[-1][2]["model"] == "chat"
+    assert local_gateway.running() is None
+
+
+def test_a_router_with_a_gateway_set_calls_its_groups_by_name(env, gateway_set):
+    router = litellm.Router(
+        model_list=[
+            {"model_name": "chat", "litellm_params": {"model": "openai/gpt-4o"}},
+            {"model_name": "backup", "litellm_params": {"model": "anthropic/claude-sonnet-4-5"}},
+        ],
+        fallbacks=[{"chat": ["backup"]}],
+    )
+    assert router.routes["chat"].name == "chat" and ar.list_routes() == {}
+    with pytest.warns(UserWarning, match="route 'chat' is defined in Python"):
+        router.completion(model="chat", messages=HELLO)
+    assert gateway_set.requests[-1][2]["model"] == "chat"
+
+
+def test_a_router_made_here_sends_its_group_name_once_a_gateway_is_set(env, installed, monkeypatch):
+    # Made on a laptop, then pointed at a gateway built with export_config(): that gateway knows the group's
+    # name, not the hashed one this computer uses, so the name is chosen at each call.
+    from theagentrouter import routing
+
+    from .fake_provider import FakeProvider
+
+    router = litellm.Router(model_list=[{"model_name": "chat", "litellm_params": {"model": "openai/gpt-4o"}}])
+    assert router.routes["chat"].name.startswith("router-") and router.routes["chat"].name in ar.list_routes()
+    server = FakeProvider()
+    try:
+        monkeypatch.setenv("AGENTROUTER_BASE_URL", server.url)
+        monkeypatch.setenv("AGENTROUTER_AUTOSTART", "0")
+        monkeypatch.setattr(routing, "_route_warned", set())
+        monkeypatch.setattr(routes, "_for_gateway", {})
+        with pytest.warns(UserWarning, match="route 'chat' is defined in Python.*that gateway's own routes"):
+            router.completion(model="chat", messages=HELLO)
+        assert server.requests[-1][2]["model"] == "chat"
+    finally:
+        server.close()
+
+
+def test_a_router_made_with_a_gateway_set_sets_up_its_route_here_once_unset(env, gateway_set, monkeypatch):
+    router = litellm.Router(model_list=[{"model_name": "chat", "litellm_params": {"model": "openai/gpt-4o"}}])
+    assert router.routes["chat"].name == "chat" and ar.list_routes() == {}
+    monkeypatch.delenv("AGENTROUTER_BASE_URL")
+    name = router._target("chat")
+    assert name.startswith("router-") and name.endswith(":chat") and name in ar.list_routes()
+
+
+def test_export_names_router_routes_after_their_group(env, installed):
+    router = litellm.Router(model_list=[{"model_name": "chat", "litellm_params": {"model": "openai/gpt-4o"}}])
+    assert router.routes["chat"].name.startswith("router-")  # on this computer, the hashed name
+    config = local_gateway.export_config(providers=["openai"])
+    assert 'value: "chat"' in config and router.routes["chat"].name not in config  # the name code calls
+    ar.route("chat", primary="openai/gpt-4o-mini")
+    with pytest.raises(exceptions.BadRequestError, match="would both be 'chat'"):
+        local_gateway.export_config(providers=["openai"])
 
 
 # --- the gateway config ---------------------------------------------------------------------------
@@ -432,6 +507,106 @@ def test_router_takes_keys_from_the_environment(env, installed):
     assert not [w for w in seen if "api_key" in str(w.message)]
 
 
+def test_router_shares_a_groups_traffic_by_weight_rpm_or_tpm(env, installed):
+    # LiteLLM's default simple-shuffle: the first of weight, rpm and tpm in litellm_params that any
+    # deployment sets; a deployment without it gets no traffic. rpm and tpm are not limits there.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        router = litellm.Router(
+            model_list=[
+                {"model_name": "chat", "litellm_params": {"model": "openai/gpt-4o", "rpm": 10, "tpm": 50000}},
+                {"model_name": "chat", "litellm_params": {"model": "openai/gpt-4o-mini", "rpm": 30}},
+                {"model_name": "chat", "litellm_params": {"model": "openai/gpt-4.1", "tpm": 9}},
+                {"model_name": "backup", "litellm_params": {"model": "anthropic/claude-sonnet-4-5"}, "rpm": 5},
+            ],
+            fallbacks=[{"chat": ["backup"]}],
+        )
+    chat = router.routes["chat"]
+    assert chat.weights == ((10, 30, 0), (1,))  # rpm decides; a top-level rpm is not a weight
+    assert ar.list_routes()[chat.name].weights == chat.weights  # saved
+    config = local_gateway.config_yaml(
+        ["openai", "anthropic"], dict(os.environ), port=1975, models=[], routes={"chat": chat}
+    )
+    assert [line.strip() for line in config.splitlines() if line.strip().startswith("weight:")] == [
+        "weight: 10",
+        "weight: 30",
+        "weight: 0",
+        "weight: 1",
+    ]
+    weight = litellm.Router(
+        model_list=[
+            {"model_name": "chat", "litellm_params": {"model": "openai/gpt-4o", "weight": 0.25, "rpm": 9}},
+            {"model_name": "chat", "litellm_params": {"model": "openai/gpt-4o-mini", "weight": 1}},
+        ]
+    )
+    assert weight.routes["chat"].weights == ((1, 4),)  # weight wins over rpm; a fraction keeps its ratio
+    equal = litellm.Router(
+        model_list=[
+            {"model_name": "chat", "litellm_params": {"model": "openai/gpt-4o", "rpm": 5}},
+            {"model_name": "chat", "litellm_params": {"model": "openai/gpt-4o-mini", "rpm": 5}},
+        ]
+    )
+    assert equal.routes["chat"].weights == ()  # equal shares need no weights
+    with pytest.raises(TypeError, match="Deployment rpm must be numeric"):
+        litellm.Router(model_list=[{"model_name": "chat", "litellm_params": {"model": "openai/gpt-4o", "rpm": "10"}}])
+
+
+def _shares(*weights):
+    return litellm._weights([{"litellm_params": {"weight": w}} for w in weights])
+
+
+def test_router_weights_keep_their_ratio():
+    # The gateway takes whole numbers up to 1,000,000; LiteLLM's weights can be any number.
+    assert _shares(0.01, 100) == (1, 10000)  # 1 in 10,001 of the traffic, as in LiteLLM, not 1 in 1,001
+    assert _shares(0.1, 0.2, 0.7) == (1, 2, 7)  # 0.1 as one tenth, not its nearest binary fraction
+    assert _shares(10, 30, 0) == (10, 30, 0)  # whole numbers that fit are kept as written
+    # A ratio too wide to fit: the largest becomes 1,000,000 and a positive weight keeps at least 1.
+    assert _shares(1e-9, 1) == (1, 1_000_000)
+    assert _shares(3_000_000, 1, 0) == (1_000_000, 1, 0)
+
+
+def test_router_says_what_it_does_not_use(env, installed):
+    with pytest.warns(
+        UserWarning, match=r"ignores routing_strategy='usage-based-routing-v2'.*does not hold deployments to rpm"
+    ):
+        litellm.Router(
+            model_list=[{"model_name": "chat", "litellm_params": {"model": "openai/gpt-4o", "rpm": 10}}],
+            routing_strategy="usage-based-routing-v2",
+        )
+    with pytest.warns(
+        UserWarning, match=r"does not use these litellm_params: api_base \(for chat\); timeout \(for chat\)"
+    ):
+        litellm.Router(
+            model_list=[
+                {
+                    "model_name": "chat",
+                    "litellm_params": {
+                        "model": "azure/gpt-4o",
+                        "api_base": "https://acme.openai.azure.com",
+                        "timeout": 5,
+                    },
+                }
+            ]
+        )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # what the gateway reads where it starts, and the default strategy
+        litellm.Router(
+            model_list=[
+                {
+                    "model_name": "chat",
+                    "litellm_params": {
+                        "model": "azure/gpt-4o",
+                        "api_key": "os.environ/AZURE_API_KEY",
+                        "api_base": "os.environ/AZURE_API_BASE",
+                        "api_version": "os.environ/AZURE_API_VERSION",
+                    },
+                    "model_info": {"id": "a"},
+                }
+            ],
+            routing_strategy="simple-shuffle",
+        )
+
+
 def test_router_rejects_unknown_fallback_groups(env, installed):
     with pytest.raises(exceptions.BadRequestError, match="not in model_list"):
         litellm.Router(
@@ -591,6 +766,82 @@ def test_exported_config_serves_a_team_gateway(real_gateway, second_fake, env, m
         proc.wait(timeout=30)
 
 
+@contextlib.contextmanager
+def _team_gateway(folder, config: str, port: int):
+    """aigw run on an exported config, as a team runs it on a server."""
+    folder.mkdir()
+    (folder / "config.yaml").write_text(config)
+    aigw_env = dict(
+        os.environ,
+        ENVOY_VERSION=local_gateway.ENVOY_VERSION,
+        AIGW_CONFIG_HOME=str(folder / "config-home"),
+        AIGW_STATE_HOME=str(folder / "state"),
+        AIGW_RUNTIME_DIR=str(local_gateway._runtime_dir()),
+    )
+    with open(folder / "aigw.log", "wb") as log:
+        proc = subprocess.Popen(
+            [local_gateway._binary(), "run", str(folder / "config.yaml"), f"--admin-port={_free_port()}"],
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            env=aigw_env,
+            start_new_session=True,
+        )
+    try:
+        deadline = time.monotonic() + 120
+        while not (
+            "listening on" in (folder / "aigw.log").read_text(errors="replace") and local_gateway._listening(port)
+        ):
+            assert proc.poll() is None and time.monotonic() < deadline, (folder / "aigw.log").read_text()[-2000:]
+            time.sleep(0.2)
+        yield
+    finally:
+        os.killpg(proc.pid, signal.SIGTERM)
+        proc.wait(timeout=30)
+
+
+@needs_aigw
+@needs_xds_port
+def test_router_code_runs_unchanged_against_an_exported_gateway(real_gateway, second_fake, env, monkeypatch):
+    """The same LiteLLM Router code on a laptop, then against a team gateway made with export_config()."""
+
+    def build():
+        return litellm.Router(
+            model_list=[
+                {"model_name": "main", "litellm_params": {"model": "acme/err-500"}},
+                {"model_name": "spare", "litellm_params": {"model": "acme2/acme-small"}},
+            ],
+            fallbacks=[{"main": ["spare"]}],
+            num_retries=0,
+        )
+
+    laptop = build()
+    monkeypatch.setenv("AGENTROUTER_API_KEY", "acme-server-secret")
+    port = _free_port()
+    config = local_gateway.export_config(port=port, providers=["acme", "acme2"])
+    with _team_gateway(env.parent / "server", config, port):
+        monkeypatch.setenv("AGENTROUTER_BASE_URL", f"http://127.0.0.1:{port}/v1")
+        monkeypatch.setenv("AGENTROUTER_AUTOSTART", "0")
+        monkeypatch.setattr(routes, "_for_gateway", {})
+        warnings.simplefilter("ignore", UserWarning)  # "the gateway's route of that name applies"
+        router = build()
+        # Once Envoy has looked up the backends' hostnames, the server's "main" falls back to acme2.
+        deadline = time.monotonic() + 60
+        while not second_fake.requests:
+            assert time.monotonic() < deadline
+            with contextlib.suppress(exceptions.APIError):
+                r = router.completion(model="main", messages=HELLO)
+            time.sleep(0.5)
+        assert r.choices[0].message.content == "echo: refunds yesterday"
+        assert second_fake.requests[-1][2]["model"] == "acme-small"
+        # The Router made on the laptop, before AGENTROUTER_BASE_URL was set, sends the group's name too.
+        assert laptop.completion(model="main", messages=HELLO).choices[0].message.content == "echo: refunds yesterday"
+        assert local_gateway.running() is None  # the SDK started nothing on this computer
+        # A client key the server does not have: Envoy refuses it in plain text, and the error names the setting.
+        monkeypatch.setenv("AGENTROUTER_API_KEY", "not-the-server-key")
+        with pytest.raises(exceptions.PermissionDeniedError, match="AGENTROUTER_API_KEY on its server"):
+            router.completion(model="main", messages=HELLO)
+
+
 @needs_aigw
 @needs_xds_port
 def test_real_gateway_tries_the_primary_first_every_time(real_gateway, second_fake):
@@ -635,6 +886,23 @@ def test_real_gateway_serves_litellm_router(real_gateway, second_fake):
     assert resp.choices[0].message.content == "echo: refunds yesterday"
     assert [b["model"] for _, _, b in real_gateway.requests] == ["err-429"]
     assert [b["model"] for _, _, b in second_fake.requests] == ["acme-small"]
+
+
+@needs_aigw
+@needs_xds_port
+def test_real_gateway_shares_a_router_group_by_rpm(real_gateway, second_fake):
+    # As in LiteLLM's simple-shuffle, a deployment with no rpm, beside one with rpm, gets no traffic.
+    router = litellm.Router(
+        model_list=[
+            {"model_name": "chat", "litellm_params": {"model": "acme/acme-large", "rpm": 5}},
+            {"model_name": "chat", "litellm_params": {"model": "acme2/acme-small"}},
+        ],
+        num_retries=0,
+    )
+    for _ in range(6):
+        router.completion(model="chat", messages=HELLO)
+    assert [b["model"] for _, _, b in real_gateway.requests] == ["acme-large"] * 6
+    assert second_fake.requests == []
 
 
 @needs_aigw

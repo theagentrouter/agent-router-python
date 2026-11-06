@@ -55,7 +55,7 @@ resp = ar.completion(model="chat", messages=messages)
 resp._hidden_params["served_by"]        # which model answered
 ```
 
-Routes are served by the local gateway and shared by every program on the computer. LiteLLM's `Router` (`from theagentrouter.compat.litellm import Router`) works too.
+Routes are served by the local gateway and shared by every program on the computer. With `AGENTROUTER_BASE_URL` set, the same code runs and that gateway's route of the same name applies. LiteLLM's `Router` (`from theagentrouter.compat.litellm import Router`) works too.
 
 ## Agent frameworks
 

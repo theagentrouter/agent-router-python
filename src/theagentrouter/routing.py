@@ -21,6 +21,7 @@ the environment when it starts. A format belongs in the SDK only if Agent Router
 
 from __future__ import annotations
 
+import json
 import os
 import warnings
 from dataclasses import dataclass, field
@@ -178,6 +179,7 @@ def resolve(
 ) -> Target:
     headers = dict(extra_headers or {})
     if api_base:
+        _warn_api_base(api_base)
         return _named_endpoint(model, api_base, api_key, headers)
 
     configured = settings()
@@ -214,6 +216,55 @@ def resolve(
 
 _key_warned = False
 _route_warned: set[str] = set()
+_api_base_warned: set[str] = set()
+
+
+def _warn_api_base(api_base: str) -> None:
+    """LiteLLM's api_base keeps its meaning, but code moved from LiteLLM may not expect it to replace the gateway."""
+    gateway = settings().get("base_url")
+    if gateway and api_base.rstrip("/") == gateway.rstrip("/"):
+        return  # the gateway already set: nothing changes
+    address = _safe_url(api_base)
+    if address in _api_base_warned:
+        return
+    _api_base_warned.add(address)
+    instead = (
+        f"in place of the gateway in AGENTROUTER_BASE_URL ({_safe_url(gateway)})"
+        if gateway
+        else "in place of the local gateway, which is not started for them"
+    )
+    warnings.warn(
+        f"api_base= sends these calls to {address} {instead}, as in LiteLLM. Routes, fallbacks and limits "
+        f"apply only if {address} is an Agent Router gateway that has them.",
+        UserWarning,
+        stacklevel=5,
+    )
+
+
+def _explain_refusal(status: int, text: str, target: Target) -> str:
+    """A 403 that a gateway you set gives itself, not a provider's JSON error, means it refused the client key.
+
+    Envoy answers it in plain text, so the error alone does not say which setting to look at.
+    """
+    if status != 403 or target.route != "gateway":
+        return text
+    try:
+        json.loads(text)
+        return text  # a provider's error, passed on by the gateway
+    except ValueError:
+        pass
+    # Envoy gives the same plain-text 403 for any access rule: a client key, but also an address allowlist or
+    # a firewall in front. So the key is named as a possible cause, not as the cause.
+    where = _safe_url(target.base_url)
+    cause = (
+        "AGENTROUTER_API_KEY may not be the key it expects"
+        if target.api_key
+        else "no client key was sent: set AGENTROUTER_API_KEY"
+    )
+    return (
+        f"{text.strip() or 'HTTP 403'} ({where} refused the request. If that gateway checks a client key, {cause}; "
+        "a gateway made with export_config() expects the same value as AGENTROUTER_API_KEY on its server.)"
+    )
 
 
 def _warn_route_unused(model: str, gateway: str) -> None:
@@ -222,7 +273,7 @@ def _warn_route_unused(model: str, gateway: str) -> None:
         return
     from . import routes
 
-    if routes.get(model) is not None:
+    if routes.defined_for_gateway(model) or routes.get(model) is not None:
         _route_warned.add(model)
         warnings.warn(
             f"route {model!r} is defined in Python, but AGENTROUTER_BASE_URL is set: routes apply to the local "

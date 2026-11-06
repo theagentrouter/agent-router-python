@@ -2,6 +2,22 @@
 
 All notable changes to this project are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Changed
+
+- `route()` and LiteLLM's `Router` no longer raise when `AGENTROUTER_BASE_URL` is set. They set up nothing on this computer; calls send the route's name to that gateway, whose route of the same name applies, and the SDK warns once. A `Router` sends the group name, such as `chat`. Code tested against the local gateway now runs unchanged against a shared one.
+- `local_gateway.export_config()` names each LiteLLM `Router` route after its group, `chat` instead of `router-1a2b3c4d:chat`, so a gateway made from it answers to the names code calls. Two routes that would get the same name raise `BadRequestError`.
+
+### Fixed
+
+- LiteLLM's `Router` shares a group's traffic by `weight`, `rpm` or `tpm` in `litellm_params`, as LiteLLM's default `simple-shuffle` does, instead of equally. A deployment without the setting, beside one with it, gets no traffic, as in LiteLLM. Weights that are not whole numbers keep their ratio: `0.01` and `100` become 1 and 10000.
+- LiteLLM's `Router` warns about what it does not use instead of dropping it without a word: a `routing_strategy` other than `simple-shuffle` (LiteLLM's usage-based strategies hold deployments to `rpm` and `tpm`), and `litellm_params` such as `api_base` and `timeout`.
+- A call with `api_base=` warns once per address that it goes there in place of the gateway, so routes, fallbacks and limits apply only if that address is an Agent Router gateway that has them.
+- A LiteLLM `Router` chooses its route name at each call, so one made before `AGENTROUTER_BASE_URL` was set sends the group name to that gateway, and one made with it set sets up its route on this computer once it is unset. Before, it kept the name it was made with and the gateway answered `NotFoundError`.
+- When a gateway set with `AGENTROUTER_BASE_URL` answers 403 in plain text, the `PermissionDeniedError` message names `AGENTROUTER_API_KEY` as a possible cause, which an exported gateway needs set to the same value on its server. It says "possible" because the gateway gives the same answer for other access rules, such as an address allowlist. Before, it carried only the gateway's own refusal text. The message no longer starts with the provider's name, since the gateway refused it, not the provider.
+- A call to a model without a known price, such as a route name on a gateway you set, reports `response_cost` as `None` and warns nothing, as LiteLLM does. Before, every such call warned "No price is known" and reported $0. `completion_cost()` called directly still warns and returns 0.
+
 ## [0.1.0a11] - 2026-11-03
 
 ### Added

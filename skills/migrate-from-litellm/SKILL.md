@@ -54,11 +54,13 @@ from google.adk.models.lite_llm import LiteLlm  # now gets theagentrouter
 
 OpenAI and Anthropic names without a provider (`gpt-5.4-mini`, `claude-sonnet-5-5`) work, as in LiteLLM. A bare `gemini-…` name meant Vertex AI in LiteLLM, which the local gateway does not serve yet: tell the user, and if they use the Gemini API, change it to `gemini/…`. With `AGENTROUTER_BASE_URL` set, the gateway takes its own names.
 
+An `api_base=` that points at a provider (common in Azure OpenAI code) sends the call there in place of the gateway, as in LiteLLM. Remove it, and tell the user the provider address now belongs where the gateway starts (`AZURE_API_BASE` for Azure).
+
 ## 5. Move retries and fallbacks
 
 `num_retries=`, `fallbacks=` and `max_retries=` on a single `completion` call are ignored with a warning. Two ways to keep them:
 
-- Keep LiteLLM's `Router` as it is: `model_list`, `fallbacks` and `num_retries` work, served by the local gateway.
+- Keep LiteLLM's `Router` as it is: `model_list`, `fallbacks` and `num_retries` work, served by the local gateway, or with `AGENTROUTER_BASE_URL` set by that gateway's route of the group's name. `weight`, `rpm` and `tpm` share a group's traffic, as in LiteLLM's default strategy. A `routing_strategy` other than `simple-shuffle` warns, because the SDK does not hold deployments to `rpm` or `tpm`: tell the user, and offer a route with `limit=ar.Limit(...)` (requests, not tokens).
 - Or define a route once and call it by name:
 
 ```python

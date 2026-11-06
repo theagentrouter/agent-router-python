@@ -281,6 +281,17 @@ def cost_per_token(
     )
 
 
+def _response_cost(model: str | None, **kwargs: Any) -> float | None:
+    """The cost a call reports in _hidden_params["response_cost"], or None when the model has no known price.
+
+    As in LiteLLM: a call to a model without a price, such as a route name on a gateway you set, leaves
+    the cost empty and warns nothing. completion_cost() called directly still says so and returns 0.
+    """
+    if not model or _key(model, kwargs.get("custom_llm_provider")) is None:
+        return None
+    return completion_cost(model=model, **kwargs)
+
+
 def completion_cost(
     completion_response: Any = None,
     model: str | None = None,

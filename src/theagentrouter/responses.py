@@ -130,8 +130,8 @@ def _parse(target: routing.Target, data: dict[str, Any], url: str, model: str) -
         "llm_provider": target.provider,
         "model_sent": target.model,
         "model_key": key,
-        "response_cost": models.completion_cost(
-            model=key,
+        "response_cost": models._response_cost(
+            key,
             prompt_tokens=int(usage.get("input_tokens") or 0),
             completion_tokens=int(usage.get("output_tokens") or 0),
         ),

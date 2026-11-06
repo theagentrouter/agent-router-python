@@ -116,8 +116,8 @@ def _hidden(target: routing.Target, url: str, usage: dict[str, Any] | None) -> d
     }
     if usage is not None:
         u = anthropic_format._usage(usage)  # the same token counts completion() reports for Claude
-        hidden["response_cost"] = models.completion_cost(
-            model=key, prompt_tokens=u.prompt_tokens, completion_tokens=u.completion_tokens
+        hidden["response_cost"] = models._response_cost(
+            key, prompt_tokens=u.prompt_tokens, completion_tokens=u.completion_tokens
         )
     return hidden
 

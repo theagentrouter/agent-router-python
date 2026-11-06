@@ -107,7 +107,11 @@ def _gateway_count(model: str, text: Any, messages: list[dict[str, Any]] | None,
     with httpx.Client(timeout=_TIMEOUT) as client:
         r = client.post(url, json=body, headers=headers)
     if r.status_code >= 400:
-        raise exceptions.from_http(r.status_code, r.text, model, target.provider)
+        explained = routing._explain_refusal(r.status_code, r.text, target)
+        # The gateway's own refusal is not the provider's, so no provider name goes in front of the message.
+        error = exceptions.from_http(r.status_code, explained, model, None if explained != r.text else target.provider)
+        error.llm_provider = target.provider
+        raise error
     return int(r.json()[field])
 
 
