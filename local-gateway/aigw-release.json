@@ -1,9 +1,9 @@
 {
   "repository": "theagentrouter/agent-router",
-  "version": "v1.2.0",
+  "version": "v1.2.1",
   "assets": {
-    "darwin-arm64": "4be4a8fdfee58acc52aba1a9e71e598df00a17ad05477cb3f4e706604636df3e",
-    "linux-amd64": "8c0b375261be88c4547eeb9afbf4cb3ca0bcfebbc29c8e97cc9f427f8d6bd6cd",
-    "linux-arm64": "3b9971171f9b02edbf04130f3ec209b5376b7f42c78f3e871b1785bac7d6c932"
+    "darwin-arm64": "77ce202dbe6e6a9b060868b0a76a4dbc2e1a1d297fc8050ed483d9d4adf23afe",
+    "linux-amd64": "b97af14fc3f116ccbdce7cdb7ae98da999f41623285bbf253095f09d214523d7",
+    "linux-arm64": "f8e90b2291ecc942f80ad21fcc099bce163cfaee0d8e98ad7df9a84ccac53c32"
   }
 }
